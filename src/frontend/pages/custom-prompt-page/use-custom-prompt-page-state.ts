@@ -1,8 +1,11 @@
 import { push_error_toast, push_toast } from "@frontend/app/feedback/desktop-toast";
 import { TRANSLATION_PROMPT } from "@domain/prompt";
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api_fetch } from "@frontend/app/desktop/desktop-api";
+import { deliver_web_file_material } from "@frontend/features/web-file-picker/web-file-download";
+import { release_web_file_materials } from "@frontend/features/web-file-picker/web-file-picker-api";
 import type { SettingsSnapshotPayload } from "@frontend/app/state/desktop-state-context";
 import { useDesktopState } from "@frontend/app/state/use-desktop-state";
 
@@ -32,6 +35,23 @@ type PromptPresetPayload = {
 type PromptImportPayload = {
   text?: string;
 };
+
+type PromptExportPayload = {
+  path?: string;
+  material?: { material_id: string; name: string; size: number }; // 材料模式才返回，供受控下载定位
+};
+
+/**
+ * 释放导入消费掉的暂存材料。
+ * 释放失败只留下后端保留时长清理，导入结果已经提交，不再叠加失败反馈。
+ */
+async function release_prompt_import_material(material_id: string): Promise<void> {
+  try {
+    await release_web_file_materials([material_id]);
+  } catch {
+    // 材料仍由后端按保留时长清理，不影响已提交的导入结果。
+  }
+}
 
 // 关闭态被冻结后可安全复用，打开态始终创建新对象。
 const CLOSED_CONFIRM_STATE = Object.freeze({ kind: null } as const);
@@ -98,15 +118,27 @@ export function useCustomPromptPageState(): UseCustomPromptPageStateResult {
     }
 
     try {
-      const pick_result = await window.desktopApp.pickPromptImportFilePath();
-      const selected_path = pick_result.paths[0] ?? null;
-      if (pick_result.canceled || selected_path === null) {
+      const pick_result = await read_host_bridge().pickPromptImportFilePath();
+      if (pick_result.canceled) {
         return;
       }
 
-      const payload = await api_fetch<PromptImportPayload>("/api/quality/prompts/import", {
-        path: selected_path,
-      });
+      const material_id = pick_result.material_ids?.[0] ?? "";
+      const selected_path = pick_result.paths[0] ?? null;
+      if (material_id === "" && selected_path === null) {
+        return;
+      }
+
+      const import_request: Record<string, unknown> =
+        material_id === "" ? { path: selected_path } : { material_id };
+      const payload = await api_fetch<PromptImportPayload>(
+        "/api/quality/prompts/import",
+        import_request,
+      );
+      // 暂存材料已被导入命令消费，读取成功即释放；正文保存失败时用户重新选择文件。
+      if (material_id !== "") {
+        await release_prompt_import_material(material_id);
+      }
       if (await replace_prompt_text(String(payload.text ?? ""))) {
         push_toast("success", t("app.feedback.import_success"));
       }
@@ -119,13 +151,31 @@ export function useCustomPromptPageState(): UseCustomPromptPageStateResult {
   const export_prompt_from_picker = useCallback(async (): Promise<void> => {
     if (load_status !== "ready") return;
     try {
-      const pick_result = await window.desktopApp.pickPromptExportFilePath();
-      const selected_path = pick_result.paths[0] ?? null;
-      if (pick_result.canceled || selected_path === null) {
+      const pick_result = await read_host_bridge().pickPromptExportFilePath();
+      if (pick_result.canceled) {
         return;
       }
 
       if (!(await flush_prompt_change())) {
+        return;
+      }
+
+      // Web 没有可写入的本地路径，导出登记为暂存材料后经受控下载交付。
+      if (pick_result.web_download === true) {
+        const export_payload = await api_fetch<PromptExportPayload>("/api/quality/prompts/export", {
+          material: true,
+        });
+        const material_id = export_payload.material?.material_id ?? "";
+        if (material_id === "") {
+          throw new Error("Prompt export did not register a staged material.");
+        }
+        await deliver_web_file_material(material_id);
+        push_toast("success", t("app.feedback.export_success"));
+        return;
+      }
+
+      const selected_path = pick_result.paths[0] ?? null;
+      if (selected_path === null) {
         return;
       }
 

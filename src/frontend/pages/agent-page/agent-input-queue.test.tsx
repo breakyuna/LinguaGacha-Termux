@@ -124,4 +124,87 @@ describe("AgentInputQueue", () => {
       ),
     ).toBe(true);
   });
+
+  it("上移/下移按钮提交相邻顺序，边界项禁用对应方向", async () => {
+    const on_reorder = vi.fn(async () => {});
+    const items = [
+      { id: "queue-1", text: "第一章", attachments: [], status: "queued" as const, createdAt: 1 },
+      { id: "queue-2", text: "第二章", attachments: [], status: "queued" as const, createdAt: 2 },
+    ];
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () =>
+      root?.render(
+        <AgentInputQueue
+          queue={{ paused: true, canSendNow: true, items }}
+          disabled={false}
+          on_edit={vi.fn()}
+          on_delete={vi.fn()}
+          on_reorder={on_reorder}
+          on_send_now={vi.fn()}
+        />,
+      ),
+    );
+
+    const move_up_buttons = [
+      ...container!.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="agent_page.queue.move_up"]',
+      ),
+    ];
+    const move_down_buttons = [
+      ...container!.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="agent_page.queue.move_down"]',
+      ),
+    ];
+
+    // 首行不能上移，末行不能下移；相邻交换沿用拖拽共用的提交入口。
+    expect(move_up_buttons.map((button) => button.disabled)).toEqual([true, false]);
+    expect(move_down_buttons.map((button) => button.disabled)).toEqual([false, true]);
+
+    // 顺序以后端快照为权威，组件不保留本地乐观顺序：两个方向交换同一对行得到同一提交结果。
+    await act(async () => move_down_buttons[0]?.click());
+    expect(on_reorder).toHaveBeenCalledWith(["queue-2", "queue-1"]);
+
+    await act(async () => move_up_buttons[1]?.click());
+    expect(on_reorder).toHaveBeenLastCalledWith(["queue-2", "queue-1"]);
+    expect(on_reorder).toHaveBeenCalledTimes(2);
+  });
+
+  it("发送中的行阻断相邻方向的重排按钮", async () => {
+    const on_reorder = vi.fn(async () => {});
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () =>
+      root?.render(
+        <AgentInputQueue
+          queue={{
+            paused: true,
+            canSendNow: true,
+            items: [
+              { id: "queue-1", text: "第一章", attachments: [], status: "queued", createdAt: 1 },
+              { id: "queue-2", text: "第二章", attachments: [], status: "sending", createdAt: 2 },
+              { id: "queue-3", text: "第三章", attachments: [], status: "queued", createdAt: 3 },
+            ],
+          }}
+          disabled={false}
+          on_edit={vi.fn()}
+          on_delete={vi.fn()}
+          on_reorder={on_reorder}
+          on_send_now={vi.fn()}
+        />,
+      ),
+    );
+
+    const read_disabled = (label: string): boolean[] =>
+      [...container!.querySelectorAll<HTMLButtonElement>(`button[aria-label="${label}"]`)].map(
+        (button) => button.disabled,
+      );
+
+    // 首行不能上移、末行不能下移；与发送中行相邻的方向同样不可用。
+    expect(read_disabled("agent_page.queue.move_up")).toEqual([true, true, true]);
+    expect(read_disabled("agent_page.queue.move_down")).toEqual([true, true, true]);
+    expect(on_reorder).not.toHaveBeenCalled();
+  });
 });

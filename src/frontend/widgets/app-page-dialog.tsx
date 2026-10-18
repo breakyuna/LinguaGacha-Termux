@@ -75,7 +75,8 @@ export function AppPageDialog(props: AppPageDialogProps): JSX.Element {
         <DialogPrimitive.Popup
           data-slot="dialog-content"
           className={cn(
-            "fixed top-1/2 left-1/2 z-(--ui-layer-overlay) flex max-h-[calc(100vh-48px)] w-[calc(100vw-48px)] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl bg-popover p-0 text-sm text-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            // 覆盖层尺寸跟随动态视口，避免地址栏伸缩时对话框超出可见区域。
+            "fixed top-1/2 left-1/2 z-(--ui-layer-overlay) flex max-h-[calc(100dvh-48px)] w-[calc(100dvw-48px)] max-w-[calc(100dvw-48px)] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl bg-popover p-0 text-sm text-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             SIZE_CLASS_NAME_BY_VALUE[size],
             props.contentClassName,
           )}

@@ -4287,6 +4287,7 @@ describe("AgentService", () => {
           await wait_for_held_tool();
           return { status: "applied" };
         }),
+        host_capabilities: Object.freeze({ imageOutput: true, pdf: true }),
       } satisfies AgentWorkspacePort);
 
     /** 把单个工具停在执行体内，分别验证普通工具与原子 apply 的 stop 语义。 */

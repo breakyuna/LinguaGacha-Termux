@@ -1,3 +1,4 @@
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import { useEffect, useRef } from "react";
 import {
   useAgentControls,
@@ -23,7 +24,7 @@ export function AgentCompletionAttention(): null {
     was_running_ref.current = false;
     // 时间线按发生顺序追加，普通用户轮次的终态决定是否提醒。
     if (round?.status === "success" || round?.status === "error") {
-      window.desktopApp.requestUserAttention();
+      read_host_bridge().requestUserAttention();
     }
   }, [round, state]);
 

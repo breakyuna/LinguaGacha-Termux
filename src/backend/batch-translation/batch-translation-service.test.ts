@@ -18,7 +18,10 @@ import { BatchTranslationRuntime } from "./batch-translation-runtime";
 import { RuntimeOperationGate } from "../runtime-operation-gate";
 import { ProjectSessionState } from "../project/project-session-state";
 import { BatchTranslationRunner } from "./core/batch-translation-runner";
-import { normalize_batch_translation_progress } from "../../domain/batch-translation";
+import {
+  BATCH_TRANSLATION_COMMAND_ID_LIMIT,
+  normalize_batch_translation_progress,
+} from "../../domain/batch-translation";
 
 /** 组合真实任务服务与可控协作者，观察启动和停止命令。 */
 function setup(loaded = true, line = 0) {
@@ -192,6 +195,72 @@ describe("批量翻译服务", () => {
     });
     await runtime.dispose();
   });
+  it("命令身份重复提交只回放在途事实，不同身份竞争维持 busy", async () => {
+    const { service, runtime, gate, run } = setup();
+    let finish!: () => void;
+    const work = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    run.mockImplementation(async () => {
+      await work;
+      return { status: "done", progress: normalize_batch_translation_progress({ line: 1 }) };
+    });
+    const request = { operation: "translate", mode: "new", scope: { kind: "all" } };
+    expect(await service.start({ ...request, command_id: "cmd-1" })).toMatchObject({
+      accepted: true,
+      command_id: "cmd-1",
+    });
+    const duplicate = await service.start({ ...request, command_id: "cmd-1" });
+    expect(duplicate).toMatchObject({ accepted: false, duplicate: true, command_id: "cmd-1" });
+    expect(duplicate["batch_translation"]).toMatchObject({ status: "requested" });
+    expect(run).toHaveBeenCalledTimes(1);
+    await expect(service.start({ ...request, command_id: "cmd-2" })).rejects.toMatchObject({
+      code: "runtime.busy",
+    });
+    finish();
+    await vi.waitFor(() => expect(runtime.find_command("cmd-1")).not.toBeNull());
+    await vi.waitFor(() => expect(gate.get_snapshot().owner).toBeNull());
+    const replay = await service.start({ ...request, command_id: "cmd-1" });
+    expect(replay).toMatchObject({ accepted: false, duplicate: true, command_id: "cmd-1" });
+    expect(replay["batch_translation"]).toMatchObject({ status: "done" });
+    expect(run).toHaveBeenCalledTimes(1);
+    const plain = await service.start(request); // 无命令身份的请求行为不变
+    expect(plain).toMatchObject({ accepted: true });
+    expect(plain).not.toHaveProperty("command_id");
+    await runtime.dispose();
+  });
+  it("接受 128 字符以内的命令身份", async () => {
+    const { service, runtime } = setup();
+    const command_id = "c".repeat(BATCH_TRANSLATION_COMMAND_ID_LIMIT);
+    expect(
+      await service.start({
+        operation: "translate",
+        mode: "new",
+        scope: { kind: "all" },
+        command_id,
+      }),
+    ).toMatchObject({ accepted: true, command_id });
+    await runtime.dispose();
+  });
+  it.each<import("../../domain/json").JsonRecord>([
+    { command_id: "" },
+    { command_id: 1 },
+    { command_id: null },
+    { command_id: "c".repeat(BATCH_TRANSLATION_COMMAND_ID_LIMIT + 1) },
+  ])("拒绝非法命令身份 %j", async (extra) => {
+    const { service, runtime, run } = setup();
+    const request: import("../../domain/json").JsonRecord = {
+      operation: "translate",
+      mode: "new",
+      scope: { kind: "all" },
+      ...extra,
+    };
+    await expect(service.start(request)).rejects.toMatchObject({
+      code: "request.validation_failed",
+    });
+    expect(run).not.toHaveBeenCalled();
+    await runtime.dispose();
+  });
 });
 
 it.each([
@@ -340,6 +409,91 @@ it.each([
     await planning.dispose();
     await database.close();
   }
+});
+
+it("受理登记运行标记，崩溃后恢复中断提示并复位线索", async () => {
+  using directory = fs.mkdtempDisposableSync(path.join(os.tmpdir(), "linguagacha-batch-state-"));
+  const project_path = path.join(directory.path, "run-state.lg");
+  const database = new ProjectDatabase();
+  await database.create_project(project_path, "run-state");
+  const session = new ProjectSessionState();
+  await session.mark_loaded(project_path);
+  const gate = new RuntimeOperationGate();
+  const runtime = new BatchTranslationRuntime(session, database, gate);
+  let finish!: () => void;
+  const work = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const run = vi.fn<BatchTranslationRunner["run"]>(async () => {
+    await work;
+    return { status: "done", progress: normalize_batch_translation_progress({ line: 1 }) };
+  });
+  const service = new BatchTranslationService(
+    { run } as unknown as BatchTranslationRunner,
+    runtime,
+    session,
+    {
+      read_setting: () => ({
+        models: [{ id: "translation" }],
+        model_selection: { translation: "translation" },
+      }),
+    },
+  );
+  expect(
+    await service.start({
+      operation: "translate",
+      mode: "new",
+      scope: { kind: "all" },
+      command_id: "cmd-run-state",
+    }),
+  ).toMatchObject({ accepted: true, command_id: "cmd-run-state" });
+  await vi.waitFor(async () =>
+    expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+      status: "running",
+      operation: "translate",
+    }),
+  );
+  finish();
+  await vi.waitFor(() => expect(runtime.find_command("cmd-run-state")).not.toBeNull());
+  await vi.waitFor(async () =>
+    expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+      status: "idle",
+    }),
+  );
+  await runtime.dispose();
+  // 进程在运行中终止：meta 停留在 running，没有终态收尾可依赖。
+  await database.transaction(project_path, (writer) =>
+    writer.set_meta(project_path, "translation_run_state", {
+      status: "running",
+      operation: "translate",
+      started_at: Date.now(),
+    }),
+  );
+  const revived_runtime = new BatchTranslationRuntime(session, database, gate);
+  const revived_service = new BatchTranslationService(
+    { run } as unknown as BatchTranslationRunner,
+    revived_runtime,
+    session,
+    { read_setting: () => ({}) },
+  );
+  const frames: string[] = [];
+  revived_runtime.subscribe((snapshot) => {
+    frames.push(snapshot.status);
+  });
+  await revived_service.restore_interrupted_run();
+  expect(frames).toEqual(["interrupted"]);
+  expect(await revived_runtime.build_snapshot()).toMatchObject({
+    status: "interrupted",
+    operation: "translate",
+  });
+  expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+    status: "idle",
+  });
+  frames.length = 0;
+  await revived_service.restore_interrupted_run(); // 线索已复位，不重复提示
+  expect(frames).toEqual([]);
+  await revived_runtime.dispose();
+  await database.close();
 });
 
 it("历史工程批量翻译保留旧分析物理数据、正式术语与资产，并只投影当前能力", async () => {

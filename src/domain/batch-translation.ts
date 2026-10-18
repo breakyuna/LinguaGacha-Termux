@@ -36,9 +36,13 @@ export const BATCH_TRANSLATION_RUN_STATUSES = [
   "stopped",
   "done",
   "error",
-] as const; // Engine 运行态状态机唯一值域
+  "interrupted",
+] as const; // Engine 运行态状态机唯一值域；interrupted 是崩溃后按持久化线索恢复的展示终态
 
 export const BATCH_TRANSLATION_START_MODES = ["new", "continue", "reset"] as const; // 后台任务启动模式，公开命令进入核心前统一小写
+
+/** 公开受理命令的身份上限，与 Agent 输入命令保持一致，便于前端复用同一生成规则。 */
+export const BATCH_TRANSLATION_COMMAND_ID_LIMIT = 128;
 
 export const BATCH_TRANSLATION_ACTIVE_STATUSES = ["requested", "running", "stopping"] as const; // 翻译活跃态供 renderer 折叠快照使用
 
@@ -178,10 +182,12 @@ export type BatchTranslationStartCommand =
       mode: BatchTranslationStartMode;
       scope: BatchTranslationScope;
       include_errors?: boolean;
+      command_id?: string; // 受理方生成的命令身份，用于回包丢失后的重复提交去重
     }
   | {
       operation: "retranslate";
       scope: Extract<BatchTranslationScope, { kind: "items" }>;
+      command_id?: string;
     };
 
 export type BatchTranslationSnapshotListener = (

@@ -1,5 +1,8 @@
 import { push_error_toast } from "@frontend/app/feedback/desktop-toast";
-import type { TranslationFileGenerationResult } from "@shared/translation-generation";
+import type {
+  TranslationFileGenerationResult,
+  TranslationGeneratedFile,
+} from "@shared/translation-generation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { format_agent_reference } from "@shared/agent-reference";
@@ -18,11 +21,18 @@ type TranslationGenerationFailedState = {
   phase: "check-failed";
 };
 
+/** 生成完成且存在输出文件时展示下载清单，无文件时直接关闭。 */
+type TranslationGenerationCompletedState = {
+  phase: "generated";
+  files: TranslationGeneratedFile[];
+};
+
 export type TranslationGenerationState =
   | { phase: "closed" }
   | { phase: "checking" }
   | TranslationGenerationReadyState
   | TranslationGenerationFailedState
+  | TranslationGenerationCompletedState
   | {
       phase: "generating";
       previous: TranslationGenerationReadyState | TranslationGenerationFailedState; // 失败后恢复确认前的可操作界面
@@ -125,9 +135,18 @@ export function useTranslationGenerationFlow(): TranslationGenerationFlow {
     const generation = request_generation_ref.current;
     apply_state({ phase: "generating", previous: current_state });
     try {
-      await api_fetch<TranslationFileGenerationResult>("/api/translation/files/generate", {});
+      const generation_result = await api_fetch<TranslationFileGenerationResult>(
+        "/api/translation/files/generate",
+        {},
+      );
       if (generation !== request_generation_ref.current) return;
-      apply_state({ phase: "closed" });
+      const generated_files = generation_result.files ?? [];
+      // 没有输出文件时保持原有关闭行为，不额外展示下载区域。
+      if (generated_files.length === 0) {
+        apply_state({ phase: "closed" });
+      } else {
+        apply_state({ phase: "generated", files: generated_files });
+      }
     } catch (error) {
       if (generation !== request_generation_ref.current) return;
       push_error_toast(t("app.translation_generation.log.failed"), error);

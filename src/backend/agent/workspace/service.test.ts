@@ -118,6 +118,19 @@ describe("AgentWorkspaceService", () => {
     expect((await run_workspace(fixture)).images).toHaveLength(1);
   });
 
+  it("宿主能力按真实注入结果报告，供模型可见说明投影", async () => {
+    const fixture = await create_fixture(temp_dir);
+    expect(fixture.service.host_capabilities).toEqual({ imageOutput: true, pdf: false });
+    const with_pdf = await create_fixture(temp_dir, undefined, true, {
+      pdfHost: vi.fn<PDFHost>(async () => create_pdf_fixture(["Translated page"])),
+    });
+    expect(with_pdf.service.host_capabilities).toEqual({ imageOutput: true, pdf: true });
+    const without_image = await create_fixture(temp_dir, undefined, true, {
+      imageAvailable: false,
+    });
+    expect(without_image.service.host_capabilities).toEqual({ imageOutput: false, pdf: false });
+  });
+
   it("失败输出只携带图片摘要，恢复时可读取保留的文件", async () => {
     const fixture = await create_fixture(temp_dir);
     fixture.run.mockImplementationOnce(async (request, signal) => {
@@ -301,6 +314,18 @@ describe("AgentWorkspaceService", () => {
     });
     expect(fs.existsSync(linked)).toBe(false);
     expect(fs.readFileSync(report, "utf8")).toBe("外部译文");
+  });
+
+  it("缺少保存位置宿主时报告能力缺失，保留文件并允许打开目录", async () => {
+    const fixture = await create_fixture(temp_dir, undefined, false);
+    const file = path.join(fixture.workspace_root, "work", "report.md");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "报告");
+    await expect(fixture.service.activate_path("work/report.md")).rejects.toMatchObject({
+      code: "runtime.capability_missing",
+    });
+    expect(fs.readFileSync(file, "utf8")).toBe("报告");
+    await expect(fixture.service.activate_path("work/")).resolves.toEqual({ status: "opened" });
   });
 
   it("取消保存不产生文件，宿主失败保留原因", async () => {
@@ -1093,7 +1118,12 @@ async function run_workspace(
 }
 
 /** 用真实磁盘工作区替换宿主脚本端口，其余协作者保持最小可观察 fake。 */
-async function create_fixture(temp_dir: string, native_fs?: NativeFs) {
+async function create_fixture(
+  temp_dir: string,
+  native_fs?: NativeFs,
+  save_path_host = true,
+  hosts: { pdfHost?: PDFHost; imageAvailable?: boolean } = {},
+) {
   const workspace_parent = path.join(temp_dir, "workspaces");
   const workspace_root = path.join(workspace_parent, "test0001");
   const revisions = Object.fromEntries(
@@ -1222,7 +1252,7 @@ async function create_fixture(temp_dir: string, native_fs?: NativeFs) {
     originalHeight: 1,
   }));
   const service = new AgentWorkspaceService({
-    images: { prepare: prepare_image },
+    images: { prepare: prepare_image, available: hosts.imageAvailable ?? true },
     runtimeDirectory: create_workspace_runtime_fixture(temp_dir),
     paths: {
       get_agent_workspace_root_dir: () => workspace_parent,
@@ -1243,7 +1273,8 @@ async function create_fixture(temp_dir: string, native_fs?: NativeFs) {
     logManager: { warning: vi.fn() },
     run,
     openDirectory: open_directory,
-    pickSavePath: pick_save_path,
+    ...(hosts.pdfHost === undefined ? {} : { pdfHost: hosts.pdfHost }),
+    ...(save_path_host ? { pickSavePath: pick_save_path } : {}),
     ...(native_fs === undefined ? {} : { nativeFs: native_fs }),
   });
   await service.activate_chat("test0001", [], async () => {});
@@ -1411,6 +1442,7 @@ it("PDF 零条目工程按页保存、隔离旧指纹，语言变化后重建工
           originalWidth: 1,
           originalHeight: 1,
         }),
+        available: true,
       },
       paths: resources.paths,
       settings: resources.settings,

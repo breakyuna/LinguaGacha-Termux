@@ -96,10 +96,14 @@ function format_compact_metric_value(
 }
 
 /**
- * 摘要和进度共享停止、运行与空闲的状态色。
+ * 摘要和进度共享停止、运行、中断与空闲的状态色。
  */
-function resolve_task_tone(args: { active: boolean; stopping: boolean }): BatchTranslationTone {
-  if (args.stopping) {
+function resolve_task_tone(args: {
+  active: boolean;
+  stopping: boolean;
+  interrupted: boolean;
+}): BatchTranslationTone {
+  if (args.stopping || args.interrupted) {
     return "warning";
   }
 
@@ -168,6 +172,8 @@ export function build_translation_task_summary_display(
     status_text = t("batch_translation.summary.stopping");
   } else if (metrics.active) {
     status_text = t("batch_translation.summary.running");
+  } else if (metrics.interrupted) {
+    status_text = t("batch_translation.summary.interrupted");
   }
 
   const speed = format_compact_metric_value(metrics.average_generation_speed, "T/S", 2);

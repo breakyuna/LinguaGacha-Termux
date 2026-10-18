@@ -1,3 +1,4 @@
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import { push_error_toast } from "@frontend/app/feedback/desktop-toast";
 import { AppContentState } from "@frontend/widgets/app-content-state";
 import {
@@ -90,7 +91,7 @@ function scroll_log_table_to_top(): void {
 export function LogWindowPage(): JSX.Element {
   const [detail_request, set_detail_request] = useState(0); // 重新打开同一日志时触发读取。
   const { t } = useI18n();
-  const shell_info = window.desktopApp.shell;
+  const shell_info = read_host_bridge().shell;
   const [scroll_anchor, set_scroll_anchor] = useState<AppTableScrollAnchor>({
     row_id: null,
     revision: 0,

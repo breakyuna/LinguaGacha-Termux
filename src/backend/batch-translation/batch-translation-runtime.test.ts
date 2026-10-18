@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   BatchTranslationRuntime,
   BATCH_TRANSLATION_REQUEST_STATE_PUBLISH_INTERVAL_MS,
+  COMMAND_RESULT_LIMIT,
 } from "./batch-translation-runtime";
 import { RuntimeOperationGate } from "../runtime-operation-gate";
 import { ProjectSessionState } from "../project/project-session-state";
@@ -456,6 +460,119 @@ describe("批量翻译完成链", () => {
     expect(handle.signal.aborted).toBe(true);
     expect(await handle.completion).toMatchObject({ status: "stopped", stop_source: "shutdown" });
     expect(gate.get_snapshot().owner).toBeNull();
+    await database.close();
+  });
+  it("命令身份在途可查、终态留存，不同身份竞争维持 busy", async () => {
+    const { runtime, database, session } = setup();
+    expect(runtime.find_command("cmd-1")).toBeNull();
+    const work = deferred<ReturnType<typeof result>>();
+    const handle = runtime.begin_standalone("translate", "cmd-1");
+    expect(runtime.find_command("cmd-1")).toMatchObject({ in_flight: true });
+    expect(runtime.find_command("cmd-1")?.snapshot).toMatchObject({ status: "requested" });
+    const execution = runtime.execute(handle, () => work.promise);
+    expect(() => runtime.begin_standalone("translate", "cmd-2")).toThrow();
+    expect(runtime.find_command("cmd-2")).toBeNull();
+    work.resolve(result());
+    await execution;
+    await handle.completion;
+    expect(runtime.find_command("cmd-1")).toMatchObject({ in_flight: false });
+    expect(runtime.find_command("cmd-1")?.snapshot).toMatchObject({ status: "done" });
+    await session.clear(); // 工程世代切换后账本属于上一世代
+    expect(runtime.find_command("cmd-1")).toBeNull();
+    await runtime.dispose();
+    await database.close();
+  });
+  it("终态账本按容量淘汰最旧命令结果", async () => {
+    const { runtime, database } = setup();
+    for (let index = 0; index < COMMAND_RESULT_LIMIT + 1; index += 1) {
+      const handle = runtime.begin_standalone("translate", `cmd-${index}`);
+      await runtime.execute(handle, async () => result());
+      await handle.completion;
+    }
+    expect(runtime.find_command("cmd-0")).toBeNull();
+    expect(runtime.find_command(`cmd-${COMMAND_RESULT_LIMIT}`)).toMatchObject({ in_flight: false });
+    await runtime.dispose();
+    await database.close();
+  });
+  it("运行开始登记 meta，崩溃后按同一工程恢复中断并复位线索", async () => {
+    using directory = fs.mkdtempDisposableSync(path.join(os.tmpdir(), "linguagacha-batch-run-"));
+    const project_path = path.join(directory.path, "run.lg");
+    const database = new ProjectDatabase();
+    await database.create_project(project_path, "run");
+    const session = new ProjectSessionState();
+    await session.mark_loaded(project_path);
+    const gate = new RuntimeOperationGate();
+    const runtime = new BatchTranslationRuntime(session, database, gate);
+    const work = deferred<ReturnType<typeof result>>();
+    const handle = runtime.begin_standalone("translate", "cmd-run");
+    const execution = runtime.execute(handle, () => work.promise);
+    await vi.waitFor(async () =>
+      expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+        status: "running",
+        operation: "translate",
+      }),
+    );
+    work.resolve(result());
+    await execution;
+    await handle.completion;
+    expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+      status: "idle",
+    });
+    await runtime.dispose();
+    // 进程在运行中终止：meta 停留在 running，没有终态收尾可依赖。
+    await database.transaction(project_path, (writer) =>
+      writer.set_meta(project_path, "translation_run_state", {
+        status: "running",
+        operation: "retranslate",
+        started_at: Date.now(),
+      }),
+    );
+    const revived = new BatchTranslationRuntime(session, database, gate);
+    const frames: string[] = [];
+    revived.subscribe((snapshot) => {
+      frames.push(snapshot.status);
+    });
+    await revived.restore_interrupted_run();
+    expect(frames).toEqual(["interrupted"]);
+    expect(await revived.build_snapshot()).toMatchObject({
+      status: "interrupted",
+      operation: "retranslate",
+      pending_item_ids: [],
+    });
+    expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+      status: "idle",
+    });
+    frames.length = 0;
+    await revived.restore_interrupted_run(); // 线索已复位，不重复提示
+    expect(frames).toEqual([]);
+    await revived.dispose();
+    await database.close();
+  });
+  it("工程加载时自动核对崩溃线索，中断快照按新工程重置", async () => {
+    using directory = fs.mkdtempDisposableSync(path.join(os.tmpdir(), "linguagacha-batch-load-"));
+    const project_path = path.join(directory.path, "load.lg");
+    const database = new ProjectDatabase();
+    await database.create_project(project_path, "load");
+    const session = new ProjectSessionState();
+    const gate = new RuntimeOperationGate();
+    const runtime = new BatchTranslationRuntime(session, database, gate);
+    await database.transaction(project_path, (writer) =>
+      writer.set_meta(project_path, "translation_run_state", {
+        status: "running",
+        operation: "translate",
+        started_at: Date.now(),
+      }),
+    );
+    const frames: string[] = [];
+    runtime.subscribe((snapshot) => {
+      frames.push(snapshot.status);
+    });
+    await session.mark_loaded(project_path);
+    expect(frames).toEqual(["idle", "interrupted"]);
+    expect((await database.get_all_meta(project_path))["translation_run_state"]).toMatchObject({
+      status: "idle",
+    });
+    await runtime.dispose();
     await database.close();
   });
 });

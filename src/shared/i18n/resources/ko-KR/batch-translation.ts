@@ -10,6 +10,7 @@ export const ko_kr_batch_translation = {
     stopping: "중지 중",
     detail_tooltip: "클릭하여 상세 정보 보기",
     running: "번역 중",
+    interrupted: "중단됨",
   },
   detail: {
     provider: "접속 지점",
@@ -32,6 +33,7 @@ export const ko_kr_batch_translation = {
     keys_retry_running: "사용 가능한 키가 없습니다. {count}회 재시도, 재시도 중 …",
     refresh_failed: "번역 작업 상태를 새로 고치지 못했습니다 …",
     start_failed: "번역 작업을 시작하지 못했습니다 …",
+    interrupted: "이전 번역 작업이 중단되었습니다. 다시 시작할 수 있습니다.",
     stop_failed: "번역 작업을 중지하지 못했습니다 …",
     reset_all_failed: "전체 번역을 초기화하지 못했습니다 …",
     reset_failed_failed: "실패 항목을 초기화하지 못했습니다 …",

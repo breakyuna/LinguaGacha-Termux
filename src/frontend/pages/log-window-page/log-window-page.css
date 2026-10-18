@@ -1,9 +1,12 @@
 .log-window-page {
   display: flex;
-  width: 100vw;
-  height: 100vh;
+  /* 日志窗口是同源路由下的独立全屏页面，视口单位与主壳层保持同一套 dvh 系。 */
+  width: 100dvw;
+  height: 100dvh;
   flex-direction: column;
   overflow: hidden;
+  /* 手势条区域不放置内容，底部预留与主壳层同一套安全区。 */
+  padding-bottom: var(--ui-safe-area-bottom);
   background: var(--background);
   color: var(--foreground);
 }
@@ -11,6 +14,8 @@
 .log-window-page__titlebar {
   position: relative;
   flex: 0 0 auto;
+  /* 独立全屏页与主壳层同样预留状态栏安全区。 */
+  margin-top: var(--ui-safe-area-top);
 }
 
 .log-window-page__titlebar::after {
@@ -75,6 +80,18 @@
 
 .log-window-page__content--detail-expanded .log-window-page__table-card {
   display: none;
+}
+
+/* 窄视口下列表与详情改为上下堆叠，避免详情列把列表压到不可用宽度。 */
+@media (max-width: 767px) {
+  .log-window-page__content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .log-window-page__content--detail-expanded {
+    grid-template-rows: minmax(0, 1fr);
+  }
 }
 
 .log-window-page__table-card,

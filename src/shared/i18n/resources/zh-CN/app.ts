@@ -96,6 +96,33 @@ export const zh_cn_app = {
   close_confirm: {
     description: "是否确认退出应用 …?",
   },
+  web_files: {
+    title_file: "选择文件",
+    title_directory: "选择文件夹",
+    title_save: "选择保存位置",
+    roots: "位置",
+    up: "上一级",
+    empty: "该目录暂无内容",
+    loading: "正在读取目录 …",
+    failed: "目录读取失败 …",
+    upload: "上传文件",
+    upload_hint: "从当前设备上传到后端暂存区，完成后即可导入",
+    upload_directory: "上传文件夹",
+    upload_directory_hint: "按文件夹内的相对结构上传，游戏与素材目录可直接导入",
+    uploading: "正在上传 …",
+    upload_failed: "上传失败 …",
+    file_name: "文件名",
+    selected_empty: "尚未选择目标",
+    confirm: "选择",
+  },
+  web_access: {
+    title: "访问凭据",
+    description: "请输入启动服务时终端显示的访问凭据 …",
+    placeholder: "访问凭据",
+    submit: "进入",
+    failed: "访问凭据无效或已失效 …",
+    capability_unavailable: "当前 Web 运行环境不支持该操作 …",
+  },
   quality_rule_import: {
     duplicate_description: "检测到 {COUNT} 条重复规则，请选择处理方式 …",
   },
@@ -198,6 +225,10 @@ export const zh_cn_app = {
     directory: {
       translated: "译文",
       bilingual: "译文_双语对照",
+    },
+    download: {
+      title: "下载译文",
+      file_action: "下载 {NAME}",
     },
     log: {
       started: "生成译文中 …",

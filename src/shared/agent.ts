@@ -4,6 +4,9 @@ import type { Locale } from "../domain/app-language";
 /** AgentService 与 renderer 共享的唯一 SSE topic。 */
 export const AGENT_CHAT_EVENT_TOPIC = "agent.chat_event";
 
+/** Agent 工作区保存位置请求与应答的 SSE topic；请求驻留到浏览器应答或服务停止。 */
+export const AGENT_SAVE_PATH_EVENT_TOPIC = "agent.save_path_event";
+
 /** 一次工作区链接激活的完成结果。取消是正常交互。 */
 export type AgentWorkspaceLinkResult = Readonly<{ status: "saved" | "opened" | "cancelled" }>;
 

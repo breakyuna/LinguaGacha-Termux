@@ -1,10 +1,19 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
 
 import { SearchBar, type SearchBarScopeOption } from "@frontend/widgets/search-bar/search-bar";
+
+// 触屏与窄视口的点击热区由 CSS 媒体查询决定，jsdom 不求值样式表，按样式源文断言契约。
+const search_bar_css = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "search-bar.css"),
+  "utf8",
+);
 
 type TestScope = "all" | "src";
 
@@ -183,5 +192,24 @@ describe("SearchBar", () => {
 
     expect(replace_next_calls).toBe(1);
     expect(replace_all_calls).toBe(1);
+  });
+
+  it("触屏与窄视口为 36px 工具栏按钮和 24px 输入组按钮补不可见热区", () => {
+    const phone_block_start = search_bar_css.indexOf("@media (hover: none)");
+    expect(phone_block_start).toBeGreaterThan(-1);
+    const phone_block = search_bar_css.slice(
+      phone_block_start,
+      search_bar_css.indexOf("\n}", phone_block_start),
+    );
+
+    // 工具栏按钮 36px + 2px 四向、输入组按钮 24px + 8px 四向，均达到 40px 量级。
+    expect(phone_block).toContain('.search-bar__actions [data-slot="button"]');
+    expect(phone_block).toContain("inset: -2px;");
+    expect(phone_block).toContain('.search-bar__input-addon [data-slot="button"]');
+    expect(phone_block).toContain("inset: -8px;");
+
+    // 热区走 ::before，不占用激活态下划线已有的 ::after。
+    expect(phone_block).toContain("::before");
+    expect(phone_block).not.toContain("::after");
   });
 });

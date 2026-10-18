@@ -64,6 +64,24 @@ describe("AppTitlebar", () => {
     expect(container?.querySelector("strong")?.textContent).toBe("LinguaGacha v1.2.3");
   });
 
+  it("窄视口把侧栏切换换成菜单图标，无障碍名称仍用切换文案", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(() => {
+      return Object.assign(new EventTarget(), { matches: true }) as MediaQueryList;
+    });
+    const button = await render_titlebar();
+
+    expect(button.querySelector("svg.lucide-menu")).not.toBeNull();
+    expect(button.querySelector("svg.lucide-panel-left-close")).toBeNull();
+    expect(button.getAttribute("aria-label")).toBe("折叠导航栏");
+
+    await act(async () => {
+      button.click();
+    });
+    // 抽屉收起后按钮仍可再次打开，图标不随并排侧栏的折叠态变化。
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(button.querySelector("svg.lucide-menu")).not.toBeNull();
+  });
+
   it("提示与切换状态一致，点击和快捷键共用入口并避开输入框", async () => {
     const button = await render_titlebar();
     await act(async () => {

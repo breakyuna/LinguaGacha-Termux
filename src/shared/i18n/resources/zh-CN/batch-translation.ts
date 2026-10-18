@@ -8,6 +8,7 @@ export const zh_cn_batch_translation = {
     stopping: "停止中",
     detail_tooltip: "点击查看详情",
     running: "翻译中",
+    interrupted: "已中断",
   },
   detail: {
     provider: "接入点",
@@ -30,6 +31,7 @@ export const zh_cn_batch_translation = {
     keys_retry_running: "无可用密钥，已重试 {count} 次，正在重试 …",
     refresh_failed: "翻译任务状态刷新失败 …",
     start_failed: "启动翻译任务失败 …",
+    interrupted: "上次翻译任务已中断，可重新开始",
     stop_failed: "停止翻译任务失败 …",
     reset_all_failed: "重置全部翻译失败 …",
     reset_failed_failed: "重置失败条目失败 …",

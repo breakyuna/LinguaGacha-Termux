@@ -197,6 +197,9 @@
   --ui-table-divider-soft: color-mix(in srgb, var(--border) 55%, transparent);
   --ui-table-hover: color-mix(in srgb, var(--accent) 78%, transparent);
   --ui-table-selected: color-mix(in srgb, var(--accent) 96%, transparent);
+  /* viewport-fit=cover 下系统状态栏与手势条会覆盖内容，安全区尺寸由系统提供，桌面恒为 0。 */
+  --ui-safe-area-top: env(safe-area-inset-top, 0px);
+  --ui-safe-area-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 :root[data-lg-base-font="disabled"] {
@@ -208,7 +211,8 @@ body,
 #root {
   width: 100%;
   min-width: 320px;
-  min-height: 100vh;
+  /* dvh 与 .app-shell 同源，避免地址栏伸缩时根部把页面撑出可见区域。 */
+  min-height: 100dvh;
 }
 
 body {
@@ -666,6 +670,34 @@ svg {
 
   [data-sonner-toaster][data-sonner-theme="dark"] .cn-toast__description {
     color: hsl(0 0% 91%);
+  }
+}
+
+/* 安全区：viewport-fit=cover 后内容会延伸到系统状态栏与手势条区域，壳层与贴底浮层自行预留，桌面恒为 0。 */
+@layer components {
+  /* 标题栏与并排侧栏各自下移避开状态栏；并排侧栏是 fixed 定位，用外边距跟随标题栏。 */
+  .app-shell .shell-topbar,
+  [data-slot="sidebar"] {
+    margin-top: var(--ui-safe-area-top);
+  }
+
+  /* 抽屉经 Portal 挂到 body，用内边距把导航列表推离状态栏。 */
+  .shell-sidebar.shell-sidebar-drawer {
+    padding-top: var(--ui-safe-area-top);
+  }
+
+  .app-shell {
+    padding-bottom: var(--ui-safe-area-bottom);
+  }
+
+  /* 抽屉经 Portal 挂到 body，不继承应用壳内边距，底部操作区需要单独预留。 */
+  .shell-sidebar__bottom {
+    padding-bottom: calc(10px + var(--ui-safe-area-bottom));
+  }
+
+  /* 贴底提示用外边距抬起，避免覆盖在手势条上。 */
+  [data-sonner-toast][data-y-position="bottom"] {
+    margin-bottom: var(--ui-safe-area-bottom);
   }
 }
 

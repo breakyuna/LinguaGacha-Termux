@@ -49,6 +49,9 @@
 |---|---|
 |启动开发应用|`npm run dev`|
 |构建发行包|`npm run build`|
+|构建 Termux Web 产物|`npm run build:web`|
+|启动 Web 服务（先构建）|`npm run start:web`|
+|构建并启动 Web 服务|`npm run dev:web`|
 |Windows CLI 帮助|安装目录中运行 `.\cli.exe translate --help`|
 |macOS CLI 帮助|主程序运行 `LinguaGacha --cli translate --help`|
 |Linux CLI 帮助|`./LinguaGacha.AppImage --cli translate --help`|
@@ -58,11 +61,22 @@
 - CLI 命令按实际安装位置定位可执行文件，参数和资源扩展名以帮助为准。
 - CLI 输出字段与退出码见上表对应实现和测试。
 
+### Termux Web 运行
+
+- `npm run build:web` 产出 `build/web/`：Node 服务入口与 worker 入口、`dist/` 渲染产物、`builtin/` 只读资源、`resources/workspace/` 工作区运行目录和 `version.txt`。
+- `npm run start:web` 运行 `node build/web/index.mjs`，启动时打印访问地址和一次性访问凭据；浏览器打开该地址即建立会话，服务停止后会话失效。
+- 启动参数：`--port=<n>`（缺省随机）、`--host=<地址>`、`--data-root=<目录>`、`--app-root=<目录>`、`--builtin-root=<目录>`、`--static-root=<目录>`、`--workspace-runtime=<目录>`、`--allowed-host=<Host>`（可重复）。
+- 数据根缺省落在 Termux 私有目录，安装更新不覆盖用户数据。
+- Android 平台的 `npm install` 由 `buildtools/install-electron.mjs` 跳过 Electron 二进制下载；桌面平台行为不变，`LINGUAGACHA_SKIP_ELECTRON=1` 可显式跳过。
+- Android ARM64 的 `npm run typecheck` 由 `buildtools/typecheck.mjs` 准备并调用同版本 TypeScript 原生编译器，检查根配置引用的 renderer、node 和 test 三个项目。首次需安装 Go 1.26 或更新版本（`pkg install golang`），并联网下载固定提交的官方源码与 Go 模块；随后复用 `build/toolchains/typescript/` 下的二进制，缓存命中后执行类型检查无需 Go 或网络。
+- Android 编译配方固定源码 SHA256，仅移植上游的 Android 文件监视器修复，标准库内嵌在编译器中。TypeScript 依赖升级时同步更新配方与缓存身份；其它平台继续调用 npm 包自带的编译器。首次构建继承 `GOPROXY` 等 Go 环境设置，可按本机网络选择可达的模块代理。
+
 ## ✅ 选择验证
 
 - 按最终改动选择检查，命中多项时合并执行。
 - 已有结果覆盖最终改动后即可交付。
 - 新增修改、失败或未解决的影响范围再触发补充验证。
+- Termux 本机资源有限，验证节奏见 [HANDOFF](../HANDOFF.md) 的验证压缩策略：编辑批次后只跑 `check` + `lint`，测试只跑受影响目录，TypeScript 探针一批一次，浏览器每里程碑一次且失败先 dump DOM。
 
 ### 文档与资源
 
@@ -132,6 +146,39 @@ npm test -- --project renderer <测试文件路径...>
 省略文件路径会运行整个对应项目。
 
 ## 🧪 平台与运行环境验证
+
+### Web 文件能力
+
+`src/backend/file/web-file-service.ts` 或 `/api/web/files/*` 变化时，运行 `web-file-service.test.ts` 与 `web-import-materials.test.ts`，并按需真实启动验证允许根、越界拒绝与未授权访问。
+
+- 允许根：Termux 主目录、共享存储、SD 卡、应用数据根；不存在的根不进清单。
+- 上传暂存：`<userdata>/web-imports/`，临时文件成功后才登记身份，取消与失败都清理半成品；落盘名无竞争时用清洗后的原始名，重名才追加身份后缀。
+- 受控下载只交付允许根、暂存区或 `<userdata>/project-copies/` 内的文件，符号链接解析后仍须位于边界内。
+- 材料契约：工程创建收 `material_ids`（成功后释放）、工作台 import 收 `materials`（追加命令并成功后释放）、质量规则/提示词导入收 `material_id`、导出收 `material` + `material_name`（登记为暂存材料交付）。
+- 译文受控下载 `GET /api/translation/files/download?path=` 只交付当前工程输出目录；工程副本 `POST /api/session/project/copy` 经数据库一致性快照生成。
+- 浏览器选择器界面接线后，前端经 `src/frontend/features/web-file-picker/` 消费上述接口；接入时先 dump DOM 确认点击目标。
+
+### 手机布局与抽屉导航
+
+壳层、侧栏或页面布局变化时，运行 `src/frontend/app` renderer 测试，并按需执行三视口浏览器验证：
+
+1. 以显式端口与临时数据根启动后，用 Playwright Core 在 `390 × 844`、`844 × 390`、`1280 × 900` 逐页测量 `document.documentElement.scrollWidth` 与 `window.innerWidth`，不得出现整体横向溢出。
+2. `390 × 844` 验证标题栏菜单按钮可打开抽屉且导航项可见；宽视口验证并排侧栏在场。
+3. 截图后实际查看；抽屉开关复用 `SidebarProvider` 同一状态机，窄视口初始收起且不写回本地偏好。
+4. Web 启动配置的 `titleBarHeight` 与桌面契约一致（40），改壳层高度时须同时核对两条启动配置。
+
+### Web 服务与同源传输
+
+Gateway、访问会话、静态资源或 Web 入口变化时，运行 `src/backend/api/`、`src/backend/network/` 与 `src/web` 相关测试，并按需执行真实启动探针：
+
+1. `npm run build:web` 后在仓库外以显式 `--port` 和临时 `--data-root` 启动。
+2. 用 Node `fetch` 探针覆盖健康检查、静态资源与缓存头、深链接回退、未授权 API 与 SSE、错误 Host / Origin、凭据换取 Cookie。
+3. 裸 socket 探针验证 `Host` 头白名单和编码穿越路径。
+4. `SIGTERM` 后确认进程退出、端口释放且无残留写入者。
+5. 浏览器验证使用本机 Playwright Core 配置，先无凭据访问确认停在凭据视图，再以完整链接进入并逐页读取数据。
+6. 壳层或启动配置变化时，加跑三视口布局验收（见上一节）。
+
+Web 后端构建或 Agent 模型加载边界变化时，构建后运行 `node buildtools/web-agent-chain-verify.mjs --script=glossary --keep=true`，验证真实本地 HTTP 模型请求、工作区工具、写入审批、取消与 SSE 重连。该探针使用临时数据；模拟模型通过不代表真实供应商或图片/PDF 宿主通过。
 
 ### GUI、宿主与文件清理
 

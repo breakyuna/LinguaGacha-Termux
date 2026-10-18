@@ -176,3 +176,17 @@
   min-height: 20px;
   padding: 0;
 }
+
+/* 触屏没有悬停态，且窄视口已进入抽屉导航的手机布局：20px 行操作用不可见热区补到
+   40px 量级点击目标；宽视口桌面的渲染尺寸与布局不变。 */
+@media (hover: none), (max-width: 767px) {
+  .workbench-page__row-action[data-slot="button"] {
+    position: relative;
+  }
+
+  .workbench-page__row-action[data-slot="button"]:not(:disabled)::after {
+    content: "";
+    position: absolute;
+    inset: -10px;
+  }
+}

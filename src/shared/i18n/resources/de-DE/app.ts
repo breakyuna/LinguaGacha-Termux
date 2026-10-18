@@ -100,6 +100,35 @@ export const de_de_app = {
   close_confirm: {
     description: "Anwendung wirklich beenden …?",
   },
+  web_files: {
+    title_file: "Datei auswählen",
+    title_directory: "Ordner auswählen",
+    title_save: "Speicherort wählen",
+    roots: "Orte",
+    up: "Eine Ebene höher",
+    empty: "Dieser Ordner ist leer",
+    loading: "Ordner wird gelesen …",
+    failed: "Ordner konnte nicht gelesen werden …",
+    upload: "Datei hochladen",
+    upload_hint: "Von diesem Gerät in den Backend-Staging-Bereich hochladen und dann importieren",
+    upload_directory: "Ordner hochladen",
+    upload_directory_hint:
+      "Der Upload behält die relative Ordnerstruktur, damit Spiele und Materialordner direkt importiert werden",
+    uploading: "Wird hochgeladen …",
+    upload_failed: "Upload fehlgeschlagen …",
+    file_name: "Dateiname",
+    selected_empty: "Noch nichts ausgewählt",
+    confirm: "Auswählen",
+  },
+  web_access: {
+    title: "Zugriffsschlüssel",
+    description:
+      "Gib den Zugriffsschlüssel ein, der beim Start des Dienstes im Terminal angezeigt wird …",
+    placeholder: "Zugriffsschlüssel",
+    submit: "Fortfahren",
+    failed: "Der Zugriffsschlüssel ist ungültig oder abgelaufen …",
+    capability_unavailable: "Diese Aktion wird in der aktuellen Web-Laufzeit nicht unterstützt …",
+  },
   quality_rule_import: {
     duplicate_description:
       "{COUNT} doppelte Regeln wurden erkannt. Wählen Sie, wie damit umgegangen werden soll …",
@@ -210,6 +239,10 @@ export const de_de_app = {
     directory: {
       translated: "Übersetzung",
       bilingual: "Übersetzung_Zweisprachig",
+    },
+    download: {
+      title: "Übersetzung herunterladen",
+      file_action: "{NAME} herunterladen",
     },
     log: {
       started: "Übersetzungsdateien werden erstellt …",

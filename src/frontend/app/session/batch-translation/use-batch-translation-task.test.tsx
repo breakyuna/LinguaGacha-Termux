@@ -7,7 +7,9 @@ import { type JSX, act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DesktopApiError } from "@frontend/app/desktop/desktop-api";
 import { useBatchTranslationTask } from "@frontend/app/session/batch-translation/use-batch-translation-task";
+import { TASK_WAVEFORM_SAMPLE_INTERVAL_MS } from "@frontend/app/session/batch-translation/batch-translation-waveform-state";
 
 const { api_fetch_mock, push_toast_mock, on_request_generation_mock } = vi.hoisted(() => {
   return {
@@ -39,8 +41,9 @@ const runtime_fixture: { current: RuntimeFixture } = {
   current: create_runtime_fixture(),
 };
 
-vi.mock("@frontend/app/desktop/desktop-api", () => {
+vi.mock("@frontend/app/desktop/desktop-api", async (import_original) => {
   return {
+    ...(await import_original<typeof import("@frontend/app/desktop/desktop-api")>()),
     api_fetch: api_fetch_mock,
     report_renderer_error: vi.fn(async () => undefined),
   };
@@ -365,6 +368,7 @@ describe("useBatchTranslationTask", () => {
       operation: "translate",
       mode: "new",
       scope: { kind: "all" },
+      command_id: expect.any(String),
     });
 
     expect(initial_fixture.sync_task_snapshot).toHaveBeenCalledWith(
@@ -381,6 +385,293 @@ describe("useBatchTranslationTask", () => {
       active: false,
       stopping: false,
     });
+  });
+
+  it("启动回包丢失后重查快照，确认已受理按受理处理且不报错", async () => {
+    runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "idle" }));
+    const initial_fixture = runtime_fixture.current;
+    api_fetch_mock.mockImplementation(async (path: string) => {
+      if (path === "/api/batch-translation/snapshot") {
+        return {
+          batch_translation: create_task_snapshot({
+            revision: 5,
+            status: "running",
+            progress: { line: 1, total_line: 3 },
+          }),
+        };
+      }
+      if (path === "/api/batch-translation/start") {
+        throw new DesktopApiError({ code: "network_failed" });
+      }
+
+      throw new Error(`未预期的请求：${path}`);
+    });
+
+    await render_probe();
+    await flush_microtasks();
+    initial_fixture.sync_task_snapshot.mockClear();
+    push_toast_mock.mockClear();
+
+    await act(async () => {
+      await latest_state?.request_start_or_continue_translation();
+    });
+    await flush_microtasks();
+
+    expect(initial_fixture.sync_task_snapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: 5,
+        status: "running",
+      }),
+    );
+    expect(push_toast_mock).not.toHaveBeenCalled();
+  });
+
+  it("重查结果不确定时保留命令身份，重复点击复用同一命令", async () => {
+    runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "idle" }));
+    const start_bodies: Record<string, unknown>[] = [];
+    let snapshot_available = true;
+    api_fetch_mock.mockImplementation(async (path: string, body: Record<string, unknown> = {}) => {
+      if (path === "/api/batch-translation/snapshot") {
+        if (!snapshot_available) {
+          throw new DesktopApiError({ code: "network_failed" });
+        }
+        return {
+          batch_translation: runtime_fixture.current.task_snapshot,
+        };
+      }
+      if (path === "/api/batch-translation/start") {
+        start_bodies.push(body);
+        throw new DesktopApiError({ code: "network_failed" });
+      }
+
+      throw new Error(`未预期的请求：${path}`);
+    });
+
+    await render_probe();
+    await flush_microtasks();
+    snapshot_available = false; // 重查同样失败：命令结果不确定
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await act(async () => {
+        await latest_state?.request_start_or_continue_translation();
+      });
+      await flush_microtasks();
+    }
+
+    expect(start_bodies).toHaveLength(2);
+    expect(start_bodies[1]?.command_id).toBe(start_bodies[0]?.command_id);
+    expect(push_toast_mock).toHaveBeenCalledWith(
+      "batch_translation.feedback.start_failed",
+      expect.any(DesktopApiError),
+    );
+  });
+
+  it("重查确认未受理时反馈失败，下一次点击换用新命令身份", async () => {
+    runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "idle" }));
+    const start_bodies: Record<string, unknown>[] = [];
+    api_fetch_mock.mockImplementation(async (path: string, body: Record<string, unknown> = {}) => {
+      if (path === "/api/batch-translation/snapshot") {
+        return {
+          batch_translation: runtime_fixture.current.task_snapshot,
+        };
+      }
+      if (path === "/api/batch-translation/start") {
+        start_bodies.push(body);
+        throw new DesktopApiError({ code: "network_failed" });
+      }
+
+      throw new Error(`未预期的请求：${path}`);
+    });
+
+    await render_probe();
+    await flush_microtasks();
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await act(async () => {
+        await latest_state?.request_start_or_continue_translation();
+      });
+      await flush_microtasks();
+    }
+
+    expect(start_bodies).toHaveLength(2);
+    expect(start_bodies[1]?.command_id).not.toBe(start_bodies[0]?.command_id);
+    expect(push_toast_mock).toHaveBeenCalledWith(
+      "batch_translation.feedback.start_failed",
+      expect.any(DesktopApiError),
+    );
+  });
+
+  it("运行互斥拒绝直接反馈失败，不重查快照", async () => {
+    runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "idle" }));
+    api_fetch_mock.mockImplementation(async (path: string) => {
+      if (path === "/api/batch-translation/snapshot") {
+        return {
+          batch_translation: runtime_fixture.current.task_snapshot,
+        };
+      }
+      if (path === "/api/batch-translation/start") {
+        throw new DesktopApiError({ code: "runtime.busy" });
+      }
+
+      throw new Error(`未预期的请求：${path}`);
+    });
+
+    await render_probe();
+    await flush_microtasks();
+    api_fetch_mock.mockClear();
+
+    await act(async () => {
+      await latest_state?.request_start_or_continue_translation();
+    });
+    await flush_microtasks();
+
+    expect(api_fetch_mock).toHaveBeenCalledOnce();
+    expect(api_fetch_mock).toHaveBeenCalledWith(
+      "/api/batch-translation/start",
+      expect.objectContaining({ command_id: expect.any(String) }),
+    );
+    expect(push_toast_mock).toHaveBeenCalledWith(
+      "batch_translation.feedback.start_failed",
+      expect.any(DesktopApiError),
+    );
+  });
+
+  it("重复受理回包按已受理处理，不报错也不重置波形", async () => {
+    vi.useFakeTimers();
+    try {
+      runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "idle" }));
+      let snapshot_available = true;
+      const start_bodies: Record<string, unknown>[] = [];
+      api_fetch_mock.mockImplementation(
+        async (path: string, body: Record<string, unknown> = {}) => {
+          if (path === "/api/batch-translation/snapshot") {
+            if (!snapshot_available) {
+              throw new DesktopApiError({ code: "network_failed" });
+            }
+            return {
+              batch_translation: runtime_fixture.current.task_snapshot,
+            };
+          }
+          if (path === "/api/batch-translation/start") {
+            start_bodies.push(body);
+            if (start_bodies.length === 1) {
+              throw new DesktopApiError({ code: "network_failed" });
+            }
+            return {
+              accepted: false,
+              duplicate: true,
+              command_id: body.command_id,
+              batch_translation: create_task_snapshot({
+                revision: 9,
+                status: "running",
+                progress: { line: 2, total_line: 3, total_output_tokens: 24 },
+              }),
+            };
+          }
+
+          throw new Error(`未预期的请求：${path}`);
+        },
+      );
+
+      await render_probe();
+      await flush_microtasks();
+
+      // 第一次点击回包丢失且重查同样失败：命令身份保留待确认
+      snapshot_available = false;
+      await act(async () => {
+        await latest_state?.request_start_or_continue_translation();
+      });
+      await flush_microtasks();
+
+      // 后端实际已受理：运行快照到场，但运行互斥快照尚未传播，菜单仍可点击
+      snapshot_available = true;
+      runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "running" }));
+      runtime_fixture.current.runtime_snapshot = { revision: 0, owner: null };
+      await render_probe();
+      await act(async () => {
+        vi.advanceTimersByTime(TASK_WAVEFORM_SAMPLE_INTERVAL_MS);
+      });
+      expect(latest_state?.translation_waveform_history.length).toBeGreaterThan(0);
+      runtime_fixture.current.sync_task_snapshot.mockClear();
+      push_toast_mock.mockClear();
+
+      await act(async () => {
+        await latest_state?.request_start_or_continue_translation();
+      });
+
+      expect(start_bodies).toHaveLength(2);
+      expect(start_bodies[1]?.command_id).toBe(start_bodies[0]?.command_id);
+      expect(runtime_fixture.current.sync_task_snapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          revision: 9,
+          status: "running",
+        }),
+      );
+      expect(push_toast_mock).not.toHaveBeenCalled();
+      // 重复受理只回放既有运行，波形继续归属该运行
+      expect(latest_state?.translation_waveform_history.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("快照转为中断时按 revision 提示一次，重复刷新不再次提示", async () => {
+    runtime_fixture.current = create_runtime_fixture(create_task_snapshot({ status: "idle" }));
+    api_fetch_mock.mockImplementation(async (path: string) => {
+      if (path === "/api/batch-translation/snapshot") {
+        return {
+          batch_translation: runtime_fixture.current.task_snapshot,
+        };
+      }
+
+      throw new Error(`未预期的请求：${path}`);
+    });
+
+    await render_probe();
+    await flush_microtasks();
+    push_toast_mock.mockClear();
+
+    runtime_fixture.current = create_runtime_fixture(
+      create_task_snapshot({
+        revision: 7,
+        status: "interrupted",
+        progress: { line: 1, total_line: 3 },
+      }),
+    );
+    await render_probe();
+    await flush_microtasks();
+
+    expect(push_toast_mock).toHaveBeenCalledExactlyOnceWith(
+      "warning",
+      "batch_translation.feedback.interrupted",
+      { persistent: false },
+    );
+
+    // 同一 revision 的重复应用只提示一次
+    runtime_fixture.current = create_runtime_fixture(
+      create_task_snapshot({
+        revision: 7,
+        status: "interrupted",
+        progress: { line: 1, total_line: 3 },
+      }),
+    );
+    await render_probe();
+    await flush_microtasks();
+
+    expect(push_toast_mock).toHaveBeenCalledOnce();
+
+    // 新的中断发布按新 revision 再次提示
+    runtime_fixture.current = create_runtime_fixture(
+      create_task_snapshot({
+        revision: 8,
+        status: "interrupted",
+        progress: { line: 1, total_line: 3 },
+      }),
+    );
+    await render_probe();
+    await flush_microtasks();
+
+    expect(push_toast_mock).toHaveBeenCalledTimes(2);
   });
 
   it("手动停止回包直接进入停止终态 且已有译文时不自动弹生成确认框", async () => {

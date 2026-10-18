@@ -17,10 +17,14 @@ export const ja_jp_workbench_page = {
     no_valid_file: "追加できる有効なファイルがありません",
     close_project_failed:
       "プロジェクトを閉じられませんでした。しばらくしてから再試行してください …",
+    copy_loading: "プロジェクトのコピーを生成しています …",
+    copy_download_started: "プロジェクトのコピーのダウンロードを開始しました …",
+    copy_saved: "プロジェクトのコピーを {PATH} に保存しました …",
   },
   action: {
     add_file: "追加",
     close_project: "プロジェクトを閉じる",
+    copy_project: "プロジェクトのコピーをダウンロード",
     reset: "翻訳状態をリセット",
     translation_task: "翻訳",
     start_translation: "翻訳を開始",

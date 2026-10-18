@@ -44,7 +44,8 @@
   width: 100%;
   align-items: stretch;
   gap: 16px;
-  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
+  /* 两列只按比例分配可用宽度，不设硬下限；窄视口由下方媒体查询改为单列。 */
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   grid-auto-rows: minmax(0, 1fr);
 }
 
@@ -298,6 +299,22 @@
 .project-home__recent-row:focus-within .project-home__recent-remove {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* 触屏没有悬停态，且窄视口已进入抽屉导航的手机布局：移除入口常驻可见，
+   并用不可见热区把 28px 按钮补到 40px 量级点击目标；宽视口桌面仍只靠悬停显示。 */
+@media (hover: none), (max-width: 767px) {
+  .project-home__recent-remove {
+    position: relative;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .project-home__recent-remove::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
 }
 
 .project-home__selected-content {

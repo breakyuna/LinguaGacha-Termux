@@ -1,3 +1,4 @@
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import { push_error_toast } from "@frontend/app/feedback/desktop-toast";
 import { TranslationGenerationProvider } from "@frontend/app/session/translation-generation/translation-generation-provider";
 import { PageLeaveProvider } from "@frontend/app/navigation/page-leave-provider";
@@ -45,11 +46,13 @@ import "@frontend/app/shell/app-shell.css";
 import type { AgentInputRequest, RouteId } from "@frontend/app/navigation/types";
 import { LocaleProvider } from "@frontend/app/locale/locale-provider";
 import { useI18n } from "@frontend/app/locale/locale-context";
+import { WebFilePickerHost } from "@frontend/features/web-file-picker/web-file-picker-host";
 import { SidebarInset, SidebarProvider } from "@frontend/shadcn/sidebar";
 import { Toaster } from "@frontend/shadcn/sonner";
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
 import { AppSidebar } from "@frontend/app/shell/app-sidebar";
 import { AppTitlebar } from "@frontend/app/shell/app-titlebar";
+import { read_is_narrow_viewport } from "@frontend/app/shell/use-narrow-viewport";
 import { AppActionDialog, AppConfirmDialog } from "@frontend/widgets/app-alert-dialog";
 import { LogWindowPage } from "@frontend/pages/log-window-page/page";
 import {
@@ -118,15 +121,17 @@ function AppContent(): JSX.Element {
   } = useDesktopState();
 
   const { t } = useI18n();
-  const shell_info = window.desktopApp.shell;
+  const shell_info = read_host_bridge().shell;
   const [selected_route, set_selected_route] = useState<RouteId>(DEFAULT_ROUTE_ID);
   // 请求与实际导航共同提交，工程选择期间保留，离开目标流程时清除。
   const [agent_input_request, set_agent_input_request] = useState<AgentInputRequest | null>(null);
   const [expanded_items, set_expanded_items] = useState<Set<RouteId>>(() => new Set());
-  const [is_sidebar_collapsed, set_is_sidebar_collapsed] = useState<boolean>(() =>
-    read_sidebar_state(),
+  const [is_sidebar_collapsed, set_is_sidebar_collapsed] = useState<boolean>(
+    () =>
+      // 窄视口首屏走抽屉，侧栏默认收起，不继承桌面用户的展开偏好。
+      read_sidebar_state() || read_is_narrow_viewport(),
   );
-  const app_version = window.desktopApp.appVersion;
+  const app_version = read_host_bridge().appVersion;
   const [update_dialog_state, set_update_dialog_state] = useState<UpdateDialogState>({
     phase: "idle",
   });
@@ -143,6 +148,8 @@ function AppContent(): JSX.Element {
   const update_release = read_update_release(update_dialog_state);
   const update_release_url = update_release?.release_url ?? null;
   useEffect(() => {
+    // 抽屉形态的收场是临时的，不写回本地偏好，避免窄视口访问污染桌面用户的展开态。
+    if (read_is_narrow_viewport()) return;
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(is_sidebar_collapsed));
   }, [is_sidebar_collapsed]);
 
@@ -168,7 +175,7 @@ function AppContent(): JSX.Element {
   }, [app_title]);
 
   useEffect(() => {
-    return window.desktopApp.onWindowCloseRequest(() => {
+    return read_host_bridge().onWindowCloseRequest(() => {
       set_close_confirm_open(true);
     });
   }, []);
@@ -322,9 +329,11 @@ function AppContent(): JSX.Element {
   /** 通过宿主打开日志窗口并消费当前项目的日志提示。 */
   function handle_open_logs(): void {
     set_log_badge_visible(false);
-    void window.desktopApp.openLogWindow().catch((error: unknown) => {
-      push_error_toast(t("app.feedback.update_failed"), error);
-    });
+    void read_host_bridge()
+      .openLogWindow()
+      .catch((error: unknown) => {
+        push_error_toast(t("app.feedback.update_failed"), error);
+      });
   }
 
   /** 将语言选择提交给共享设置入口。 */
@@ -409,7 +418,7 @@ function AppContent(): JSX.Element {
         progress_percent: 0,
       });
       try {
-        const result = await window.desktopApp.downloadUpdate(
+        const result = await read_host_bridge().downloadUpdate(
           {
             latest_version: release.latest_version,
             release_url: release.release_url,
@@ -444,7 +453,7 @@ function AppContent(): JSX.Element {
         set_update_dialog_state({ phase: "ready_to_restart", release, zip_path });
         return;
       }
-      await window.desktopApp.launchUpdate({
+      await read_host_bridge().launchUpdate({
         latest_version: release.latest_version,
         zip_path,
       });
@@ -505,7 +514,7 @@ function AppContent(): JSX.Element {
         set_close_confirm_open(false);
         return;
       }
-      await window.desktopApp.quitApp();
+      await read_host_bridge().quitApp();
     } catch (error) {
       set_close_confirm_submitting(false);
       push_error_toast(t("app.feedback.update_failed"), error);
@@ -527,8 +536,8 @@ function AppContent(): JSX.Element {
         }}
         style={
           {
-            "--sidebar-width": "256px",
-            "--sidebar-width-icon": "72px",
+            "--sidebar-width": "var(--shell-sidebar-width)",
+            "--sidebar-width-icon": "var(--shell-sidebar-width-icon)",
           } as CSSProperties
         }
       >
@@ -639,6 +648,9 @@ function AppContent(): JSX.Element {
           set_close_confirm_open(false);
         }}
       />
+
+      {/* 浏览器没有系统文件对话框，宿主桥的路径选择统一由应用内选择器承接。 */}
+      <WebFilePickerHost />
     </>
   );
 }

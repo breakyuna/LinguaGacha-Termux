@@ -15,7 +15,7 @@ export function check_typescript(sources: readonly string[]): void {
     execFileSync(
       process.execPath,
       [
-        path.resolve("node_modules/typescript/lib/tsc.js"),
+        path.resolve("buildtools/typecheck.mjs"),
         "--ignoreConfig",
         "--noEmit",
         "--strict",

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   build_backend_runtime_worker_entry_url_from_desktop_bundle_dir,
   build_worker_threads_backend_worker_execution_from_desktop_bundle_dir,
+  WEB_WORKER_ENTRY_EXTENSION,
   resolve_desktop_bundle_dir_from_module_url,
 } from "./worker-execution";
 
@@ -41,6 +42,29 @@ describe("worker-execution", () => {
     });
     expect(build_backend_runtime_worker_entry_url_from_desktop_bundle_dir(bundle_root)).toEqual(
       pathToFileURL(path.join(bundle_root, "backend-runtime-worker-entry.js")),
+    );
+  });
+
+  it("Web 构建产物入口使用 .mjs 扩展名", () => {
+    const bundle_root = path.join(process.cwd(), "build", "web");
+    const execution = build_worker_threads_backend_worker_execution_from_desktop_bundle_dir(
+      bundle_root,
+      WEB_WORKER_ENTRY_EXTENSION,
+    );
+
+    expect(execution.kind).toBe("worker_threads");
+    if (execution.kind !== "worker_threads") return;
+    expect(execution.computeWorkerEntryUrl).toEqual(
+      pathToFileURL(path.join(bundle_root, "compute-worker-entry.mjs")),
+    );
+    expect(execution.workUnitWorkerEntryUrl).toEqual(
+      pathToFileURL(path.join(bundle_root, "work-unit-worker-entry.mjs")),
+    );
+    expect(execution.planningWorkerEntryUrl).toEqual(
+      pathToFileURL(path.join(bundle_root, "planning-worker-entry.mjs")),
+    );
+    expect(execution.rpgmakerMvMzPrepareWorkerEntryUrl).toEqual(
+      pathToFileURL(path.join(bundle_root, "rpgmaker-mv-mz-prepare-worker-entry.mjs")),
     );
   });
 });

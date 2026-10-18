@@ -11,12 +11,15 @@ export interface AppPathServiceOptions {
   platform?: NodeJS.Platform; // 只参与数据根选择
   env?: NodeJS.ProcessEnv; // 只读取 APPIMAGE 运行形态
   nativeFs?: NativeFs;
+  dataRoot?: string; // Web 入口显式注入数据根，替代可写探测与 home 回退
 }
 
 const HOME_DATA_ROOT_NAME = "LinguaGacha";
 const BUILTIN_DIR_NAME = "builtin";
 const USER_DATA_DIR_NAME = "userdata";
 const BERSERKER_DIR_NAME = "berserker";
+const WEB_IMPORT_DIR_NAME = "web-imports"; // 浏览器上传材料与导出交付的暂存根
+const PROJECT_COPY_DIR_NAME = "project-copies"; // 工程副本落点，与暂存区并列
 const SKILLS_DIR_NAME = "skills";
 const AGENT_WORKSPACE_DIR_NAME = "workspace";
 const LOG_DIR_NAME = "log";
@@ -77,6 +80,7 @@ export class AppPathService {
   private readonly platform: NodeJS.Platform;
   private readonly env: NodeJS.ProcessEnv;
   private readonly native_fs: NativeFs; // 只服务数据根可写探测，不承载应用文件语义
+  private readonly data_root_override: string | null; // Web 入口注入的固定数据根，探测不再参与
   private data_root: string | null = null; // 首次读取时完成一次可写探测并冻结结果
 
   /**
@@ -88,6 +92,8 @@ export class AppPathService {
     this.platform = options.platform ?? process.platform;
     this.env = options.env ?? process.env;
     this.native_fs = options.nativeFs ?? default_native_fs;
+    this.data_root_override =
+      options.dataRoot === undefined ? null : path.resolve(options.dataRoot);
   }
 
   /**
@@ -141,6 +147,20 @@ export class AppPathService {
    */
   public get_berserker_update_root_dir(): string {
     return this.get_user_data_path(BERSERKER_DIR_NAME);
+  }
+
+  /**
+   * 返回 Web 文件暂存根，浏览器上传材料和导出交付共用同一目录。
+   */
+  public get_web_import_root_dir(): string {
+    return this.get_user_data_path(WEB_IMPORT_DIR_NAME);
+  }
+
+  /**
+   * 返回工程副本目录，副本在数据库一致性边界生成后落入此处。
+   */
+  public get_project_copy_root_dir(): string {
+    return this.get_user_data_path(PROJECT_COPY_DIR_NAME);
   }
 
   /** 返回 Agent 工作区父目录。会话材料按持久化身份独立保存。 */
@@ -268,6 +288,8 @@ export class AppPathService {
    * 选择可写数据根，兼容打包态和只读应用目录
    */
   private resolve_data_root(): string {
+    // 注入的数据根优先，安装目录更新不得覆盖用户数据。
+    if (this.data_root_override !== null) return this.data_root_override;
     const home_data_root = path.join(os.homedir(), HOME_DATA_ROOT_NAME);
     if (this.env["APPIMAGE"] !== undefined) {
       return home_data_root;

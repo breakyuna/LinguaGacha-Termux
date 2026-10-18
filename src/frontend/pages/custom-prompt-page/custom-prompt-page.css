@@ -75,7 +75,7 @@
 }
 
 .custom-prompt-page__readonly-tooltip-copy {
-  max-height: min(360px, calc(100vh - 120px));
+  max-height: min(360px, calc(100dvh - 120px));
   margin: 0;
   overflow: auto;
   white-space: pre-wrap;

@@ -73,6 +73,13 @@
   opacity: 1;
 }
 
+/* 触屏点按表格行不会产生 :focus-within，全文预览入口需要常驻可见。 */
+@media (hover: none) {
+  .proofreading-page__text-preview-trigger {
+    opacity: 1;
+  }
+}
+
 .proofreading-page__text-preview {
   max-width: min(560px, var(--available-width));
 }

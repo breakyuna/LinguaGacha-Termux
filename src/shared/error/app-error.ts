@@ -6,7 +6,7 @@ export type AppErrorPublicDetails = JsonRecord;
 export type AppErrorDiagnosticContext = Record<string, unknown>;
 
 export interface AppErrorDefinition {
-  status: 400 | 404 | 409 | 415 | 423 | 500 | 502;
+  status: 400 | 401 | 403 | 404 | 409 | 415 | 423 | 500 | 502;
   severity: AppErrorSeverity;
   message: string; // 无底层异常时使用的源头原因。
 }
@@ -26,6 +26,16 @@ export const APP_ERROR_DEFINITIONS = {
   "request.route_not_found": {
     message: "The API route does not exist.",
     status: 404,
+    severity: "expected",
+  },
+  "request.unauthorized": {
+    message: "The access session is invalid or expired.",
+    status: 401,
+    severity: "expected",
+  },
+  "request.forbidden_origin": {
+    message: "The request origin is not allowed.",
+    status: 403,
     severity: "expected",
   },
   "project.not_loaded": { message: "No project is loaded.", status: 409, severity: "expected" },
@@ -117,6 +127,11 @@ export const APP_ERROR_DEFINITIONS = {
     message: "The runtime resource has been disposed.",
     status: 500,
     severity: "fault",
+  },
+  "runtime.timeout": {
+    message: "The runtime operation timed out.",
+    status: 502,
+    severity: "warning",
   },
   "runtime.cancelled": {
     message: "The operation was cancelled.",

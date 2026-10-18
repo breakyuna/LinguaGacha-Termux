@@ -130,6 +130,8 @@ export const en_us_agent_page = {
     no_message_text: "No message text",
     attachments: "{count} attachments",
     reorder: "Drag to reorder",
+    move_up: "Move up",
+    move_down: "Move down",
     send_now: "Send now",
     sending: "Sending",
     delete: "Delete message",

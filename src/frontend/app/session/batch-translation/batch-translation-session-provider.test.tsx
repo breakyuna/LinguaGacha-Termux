@@ -78,6 +78,7 @@ function create_batch_translation_task_fixture(
     translation_task_metrics: {
       active: false,
       stopping: false,
+      interrupted: false,
       elapsed_seconds: 0,
       remaining_seconds: 0,
       average_generation_speed: 0,

@@ -97,6 +97,33 @@ export const ko_kr_app = {
   close_confirm: {
     description: "앱을 종료할까요 …?",
   },
+  web_files: {
+    title_file: "파일 선택",
+    title_directory: "폴더 선택",
+    title_save: "저장 위치 선택",
+    roots: "위치",
+    up: "한 단계 위로",
+    empty: "이 폴더는 비어 있습니다",
+    loading: "폴더를 읽는 중 …",
+    failed: "폴더 읽기에 실패했습니다 …",
+    upload: "파일 업로드",
+    upload_hint: "이 기기에서 백엔드 임시 영역으로 업로드한 뒤 가져옵니다",
+    upload_directory: "폴더 업로드",
+    upload_directory_hint: "폴더 안의 상대 구조를 유지해 업로드하므로 게임과 자료 폴더를 그대로 가져옵니다",
+    uploading: "업로드 중 …",
+    upload_failed: "업로드에 실패했습니다 …",
+    file_name: "파일 이름",
+    selected_empty: "아직 선택되지 않았습니다",
+    confirm: "선택",
+  },
+  web_access: {
+    title: "접근 자격 증명",
+    description: "서비스 시작 시 터미널에 표시된 접근 자격 증명을 입력하세요 …",
+    placeholder: "접근 자격 증명",
+    submit: "입장",
+    failed: "접근 자격 증명이 유효하지 않거나 만료되었습니다 …",
+    capability_unavailable: "현재 Web 실행 환경에서는 이 작업을 사용할 수 없습니다 …",
+  },
   quality_rule_import: {
     duplicate_description: "중복 규칙 {COUNT}개를 발견했습니다. 처리 방법을 선택해 주세요 …",
   },
@@ -199,6 +226,10 @@ export const ko_kr_app = {
     directory: {
       translated: "번역문",
       bilingual: "번역문_대역",
+    },
+    download: {
+      title: "번역문 다운로드",
+      file_action: "{NAME} 다운로드",
     },
     log: {
       started: "번역문 생성 중 …",

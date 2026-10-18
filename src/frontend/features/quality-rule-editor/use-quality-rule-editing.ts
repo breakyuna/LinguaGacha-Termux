@@ -22,9 +22,10 @@ import {
   update_quality_rule,
   import_quality_rule_entries,
   read_quality_rule_preset,
-  pick_quality_rule_import_path,
+  pick_quality_rule_import_source,
   export_quality_rule_entries,
 } from "./quality-rule-api-client";
+import { release_web_file_materials } from "@frontend/features/web-file-picker/web-file-picker-api";
 import {
   useQualityRuleDuplicateConfirmation,
   type QualityRuleDuplicateResolutionPlan,
@@ -54,6 +55,18 @@ const IMPORT_KIND = {
   post_replacement: QualityRuleImportRuleTypeValue.POST_REPLACEMENT,
   text_preserve: QualityRuleImportRuleTypeValue.TEXT_PRESERVE,
 } as const;
+
+/**
+ * 释放导入消费掉的暂存材料。
+ * 释放失败只留下后端保留时长清理，导入结果已经提交，不再叠加失败反馈。
+ */
+async function release_import_material(material_id: string): Promise<void> {
+  try {
+    await release_web_file_materials([material_id]);
+  } catch {
+    // 材料仍由后端按保留时长清理，不影响已提交的导入结果。
+  }
+}
 type ApplyOptions = { source: "import" | "preset" | "dialog"; refresh: ResultRefreshPolicy };
 
 /** 页面编辑只持有草稿和意图，项目事实、事务恢复和结果版本门闩继续使用现有拥有者。 */
@@ -361,15 +374,25 @@ export function useQualityRuleEditing<K extends QualityRuleKind>(options: {
   /** 把有效文件路径交给共享导入流程。 */
   async function import_entries_from_path(path: string): Promise<void> {
     if (path.trim() !== "")
-      await import_entries("import", () => import_quality_rule_entries(options.rule_type, path));
+      await import_entries("import", () =>
+        import_quality_rule_entries(options.rule_type, { path }),
+      );
   }
   /** 文件选择完成后核对项目身份，再开始导入。 */
   async function import_entries_from_picker(): Promise<void> {
     if (readonly) return;
     const token = generation.current;
     try {
-      const path = await pick_quality_rule_import_path();
-      if (path !== null && token === generation.current) await import_entries_from_path(path);
+      const source = await pick_quality_rule_import_source();
+      if (source === null || token !== generation.current) return;
+      await import_entries("import", async () => {
+        const entries = await import_quality_rule_entries(options.rule_type, source);
+        // 暂存材料已被导入命令消费，读取成功即释放；项目写入失败时用户重新选择文件。
+        if ("material_id" in source) {
+          await release_import_material(source.material_id);
+        }
+        return entries;
+      });
     } catch (error) {
       if (token === generation.current) report(error, "app.feedback.import_failed");
     }

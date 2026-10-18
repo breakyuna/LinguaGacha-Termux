@@ -1,11 +1,19 @@
 import type { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
-import type { JsonRecord } from "../../domain/json";
+import type { JsonRecord, JsonSnapshot } from "../../domain/json";
 import type { BackendServices } from "../bootstrap/backend-services";
 import type { AgentService } from "../agent/agent-service";
 import type { ApiJsonHandler } from "./api-request";
 import { register_api_routes } from "./api-routes";
+import { AppPathService } from "../app/app-path-service";
+import type { WebFileService } from "../file/web-file-service";
+import { WebFileService as RealWebFileService } from "../file/web-file-service";
+import { AppError } from "../../shared/error";
 
 // 公开 HTTP 路径是客户端契约，独立清单用于发现误删、改名与重复注册。
 const GET_PATHS = new Set([
@@ -17,9 +25,18 @@ const GET_PATHS = new Set([
   "/api/agent/snapshot",
   "/api/models/selection",
   "/api/models/catalog/snapshot",
+  "/api/web/bootstrap",
+  "/api/web/files/material/:id",
+  "/api/web/files/download",
+  "/api/translation/files/download",
 ]);
 
 const POST_PATHS = new Set([
+  "/api/web/session",
+  "/api/web/files/roots",
+  "/api/web/files/list",
+  "/api/web/files/upload",
+  "/api/web/files/material/release",
   "/api/models/auth/snapshot",
   "/api/models/auth/login",
   "/api/models/auth/cancel",
@@ -53,6 +70,8 @@ const POST_PATHS = new Set([
   "/api/agent/queue/send",
   "/api/agent/round/revise",
   "/api/agent/round/fork",
+  "/api/agent/save-path/pending",
+  "/api/agent/save-path/respond",
   "/api/agent/continue",
   "/api/agent/context/compact",
   "/api/agent/stop",
@@ -64,6 +83,7 @@ const POST_PATHS = new Set([
   "/api/session/source-files/summary",
   "/api/session/project/open",
   "/api/session/project/create",
+  "/api/session/project/copy",
   "/api/session/project/open-preview",
   "/api/workbench/snapshot",
   "/api/project/translation-stats",
@@ -118,6 +138,36 @@ const POST_PATHS = new Set([
   "/api/batch-translation/stop",
   "/api/batch-translation/snapshot",
 ]);
+
+const data_root = fs.mkdtempSync(path.join(os.tmpdir(), "lg-api-routes-"));
+const paths = new AppPathService({
+  appRoot: data_root,
+  builtinRoot: path.join(data_root, "builtin"),
+  dataRoot: path.join(data_root, "data"),
+});
+const staging_root = paths.get_web_import_root_dir();
+
+// 材料契约用例共用同一个真实暂存服务，注册清单用例不受影响。
+const web_files: WebFileService = new RealWebFileService({ paths });
+
+afterAll(async () => {
+  await web_files.dispose();
+  fs.rmSync(data_root, { recursive: true, force: true });
+});
+
+function create_upload_body(content: string): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(content));
+      controller.close();
+    },
+  });
+}
+
+/** 把响应快照按 JSON 记录读取，材料字段断言不依赖信封类型收窄。 */
+function read_snapshot_record(value: JsonSnapshot): JsonRecord {
+  return value as unknown as JsonRecord;
+}
 
 describe("register_api_routes", () => {
   it("注册完整且无重复的公开路径，不锁定注册顺序", () => {
@@ -269,10 +319,271 @@ describe("register_api_routes", () => {
     expect(read_post_handler(fixture.post_json, "/api/models/copy")(request)).toBe(response);
     expect(fixture.copy_model).toHaveBeenCalledExactlyOnceWith(request);
   });
+
+  it("工程创建合并暂存材料路径，提交成功后释放材料", async () => {
+    const fixture = create_route_fixture();
+    const staged = await web_files.stage_upload(
+      "novel.txt",
+      create_upload_body("正文"),
+      new AbortController().signal,
+    );
+    fixture.create_project_commit.mockResolvedValue({
+      project: { path: "/data/out.lg", loaded: true },
+    });
+
+    const response = await read_post_handler(
+      fixture.post_json,
+      "/api/session/project/create",
+    )({
+      path: "/data/out.lg",
+      source_paths: ["/data/source.txt"],
+      material_ids: [staged.material_id],
+      project_settings: {},
+    });
+
+    expect(response).toEqual({ project: { path: "/data/out.lg", loaded: true } });
+    const request = fixture.create_project_commit.mock.calls[0]?.[0] as JsonRecord;
+    expect(request["material_ids"]).toBeUndefined();
+    expect(request["source_paths"]).toEqual(["/data/source.txt", staged.path]);
+    expect(fs.existsSync(staged.path)).toBe(false);
+    expect(() => web_files.read_staged_material(staged.material_id)).toThrow(AppError);
+  });
+
+  it("工程创建提交失败不释放暂存材料", async () => {
+    const fixture = create_route_fixture();
+    const staged = await web_files.stage_upload(
+      "novel.txt",
+      create_upload_body("正文"),
+      new AbortController().signal,
+    );
+    fixture.create_project_commit.mockRejectedValue(new AppError("file.parse_failed"));
+
+    await expect(
+      read_post_handler(
+        fixture.post_json,
+        "/api/session/project/create",
+      )({
+        path: "/data/out.lg",
+        source_paths: [],
+        material_ids: [staged.material_id],
+      }),
+    ).rejects.toMatchObject({ code: "file.parse_failed" });
+    expect(web_files.read_staged_material(staged.material_id).path).toBe(staged.path);
+  });
+
+  it("工程创建不传材料时桌面载荷原样转交", async () => {
+    const fixture = create_route_fixture({ webFiles: null });
+    const request = { path: "/data/out.lg", source_paths: ["/data/source.txt"] };
+
+    await read_post_handler(fixture.post_json, "/api/session/project/create")(request);
+
+    expect(fixture.create_project_commit).toHaveBeenCalledExactlyOnceWith(request);
+  });
+
+  it("工作台导入把暂存材料追加为文件命令，提交成功后释放", async () => {
+    const fixture = create_route_fixture();
+    const staged = await web_files.stage_upload(
+      "www/data/escape name.txt",
+      create_upload_body("正文"),
+      new AbortController().signal,
+    );
+    fixture.import_files.mockResolvedValue({ accepted: true });
+
+    await read_post_handler(
+      fixture.post_json,
+      "/api/workbench/files/import",
+    )({
+      files: [{ source_path: "/data/a.txt", target_rel_path: "a.txt" }],
+      materials: [{ material_id: staged.material_id }],
+      conflict_action: "skip",
+    });
+
+    const request = fixture.import_files.mock.calls[0]?.[0] as JsonRecord;
+    expect(request["files"]).toEqual([
+      { source_path: "/data/a.txt", target_rel_path: "a.txt" },
+      { source_path: staged.path, target_rel_path: "www/data/escape_name.txt" },
+    ]);
+    expect(fs.existsSync(staged.path)).toBe(false);
+  });
+
+  it("工作台预览把暂存材料解析为源路径", async () => {
+    const fixture = create_route_fixture();
+    const staged = await web_files.stage_upload(
+      "novel.txt",
+      create_upload_body("正文"),
+      new AbortController().signal,
+    );
+    fixture.preview_import_files.mockResolvedValue({ files_revision: 3, files: [] });
+
+    await read_post_handler(
+      fixture.post_json,
+      "/api/workbench/files/preview",
+    )({
+      source_paths: ["/data/a.txt"],
+      materials: [{ material_id: staged.material_id }],
+    });
+
+    expect(fixture.preview_import_files).toHaveBeenCalledWith({
+      source_paths: ["/data/a.txt", staged.path],
+      materials: [{ material_id: staged.material_id }],
+    });
+  });
+
+  it("质量规则导入把材料身份提升为暂存路径", async () => {
+    const fixture = create_route_fixture();
+    const staged = await web_files.stage_upload(
+      "rules.json",
+      create_upload_body("[]"),
+      new AbortController().signal,
+    );
+    fixture.import_rules.mockResolvedValue({ entries: [] });
+
+    await read_post_handler(
+      fixture.post_json,
+      "/api/quality/rules/import",
+    )({
+      rule_type: "glossary",
+      material_id: staged.material_id,
+    });
+
+    expect(fixture.import_rules).toHaveBeenCalledWith({
+      rule_type: "glossary",
+      path: staged.path,
+    });
+  });
+
+  it("质量规则导出材料模式把输出登记为暂存材料并清理一次性目录", async () => {
+    const fixture = create_route_fixture();
+    fixture.export_rules.mockImplementation(async (request: JsonRecord) => {
+      const base_path = String(request["path"]);
+      fs.mkdirSync(path.dirname(base_path), { recursive: true });
+      fs.writeFileSync(`${base_path}.json`, "[]");
+      fs.writeFileSync(`${base_path}.xlsx`, "xlsx");
+      return { path: `${base_path}.json` };
+    });
+
+    const response = read_snapshot_record(
+      await read_post_handler(
+        fixture.post_json,
+        "/api/quality/rules/export",
+      )({
+        rule_type: "glossary",
+        path: "/ignored/path.json",
+        entries: [],
+        material: true,
+      }),
+    );
+
+    const request = fixture.export_rules.mock.calls[0]?.[0] as JsonRecord;
+    expect(request["material"]).toBeUndefined();
+    expect(String(request["path"]).startsWith(path.join(staging_root, ".export-"))).toBe(true);
+    expect(response["path"]).toBe(`${String(request["path"])}.json`);
+    expect(response["material"]).toMatchObject({ name: "quality-rules.json", size: 2 });
+    const material = response["material"] as unknown as JsonRecord;
+    expect(web_files.read_staged_material(String(material["material_id"])).name).toBe(
+      "quality-rules.json",
+    );
+    expect(fs.readdirSync(staging_root).some((name) => name.startsWith(".export-"))).toBe(false);
+  });
+
+  it("质量规则导出不请求材料时桌面行为不变", async () => {
+    const fixture = create_route_fixture();
+    fixture.export_rules.mockResolvedValue({ path: "/data/rules.json" });
+
+    const response = read_snapshot_record(
+      await read_post_handler(
+        fixture.post_json,
+        "/api/quality/rules/export",
+      )({
+        rule_type: "glossary",
+        path: "/data/rules",
+        entries: [],
+      }),
+    );
+
+    expect(response).toEqual({ path: "/data/rules.json" });
+    expect(fixture.export_rules).toHaveBeenCalledWith({
+      rule_type: "glossary",
+      path: "/data/rules",
+      entries: [],
+    });
+  });
+
+  it("提示词导出材料模式登记暂存材料", async () => {
+    const fixture = create_route_fixture();
+    fixture.export_prompt.mockImplementation(async (request: JsonRecord) => {
+      const output_path = String(request["path"]);
+      fs.mkdirSync(path.dirname(output_path), { recursive: true });
+      fs.writeFileSync(output_path, "prompt");
+      return { path: output_path };
+    });
+
+    const response = read_snapshot_record(
+      await read_post_handler(
+        fixture.post_json,
+        "/api/quality/prompts/export",
+      )({
+        material: true,
+      }),
+    );
+
+    expect(response["material"]).toMatchObject({ name: "translation-prompt.txt", size: 6 });
+  });
+
+  it("译文下载路由把路径转交生成服务并返回受控下载响应头", () => {
+    const fixture = create_route_fixture();
+    const output_path = "/data/demo_译文/script.txt";
+    fixture.open_download.mockReturnValue({
+      name: "script.txt",
+      size: 5,
+      stream: Readable.from(Buffer.from("正文")),
+    });
+
+    const response = read_request_handler(
+      fixture.get,
+      "/api/translation/files/download",
+    )(
+      new Request(
+        `http://127.0.0.1/api/translation/files/download?path=${encodeURIComponent(output_path)}`,
+      ),
+    ) as Response;
+
+    expect(fixture.open_download).toHaveBeenCalledWith(output_path);
+    expect(response.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(response.headers.get("Content-Length")).toBe("5");
+    expect(response.headers.get("Content-Disposition")).toBe(
+      "attachment; filename*=UTF-8''script.txt",
+    );
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("译文下载缺少路径参数按请求参数错误拒绝", () => {
+    const fixture = create_route_fixture();
+
+    expect(() =>
+      read_request_handler(
+        fixture.get,
+        "/api/translation/files/download",
+      )(new Request("http://127.0.0.1/api/translation/files/download")),
+    ).toThrow(AppError);
+    expect(fixture.open_download).not.toHaveBeenCalled();
+  });
+
+  it("工程副本路由转交副本服务并返回副本身份", async () => {
+    const fixture = create_route_fixture();
+    const copy = { path: "/data/project-copies/demo_副本_1.lg", name: "demo_副本_1.lg", size: 24 };
+    fixture.copy_project.mockResolvedValue(copy);
+
+    await expect(
+      read_post_handler(fixture.post_json, "/api/session/project/copy")({}),
+    ).resolves.toEqual(copy);
+    expect(fixture.copy_project).toHaveBeenCalledTimes(1);
+  });
 });
 
 /** 每个行为独立注册一次，避免跨测试共享 mock 调用历史。 */
-function create_route_fixture() {
+function create_route_fixture(options: { webFiles?: WebFileService | null } = {}) {
   const catalog_snapshot = { instance_id: "catalog", started_at: 100, revision: 1 };
   const get = vi.fn();
   const post_json = vi.fn();
@@ -293,6 +604,16 @@ function create_route_fixture() {
   const copy_model = vi.fn();
   const source_file_summary = { source_file_count: 1, format_hit_counts: { txt: 1 } };
   const summarize_source_files = vi.fn(() => source_file_summary);
+  const create_project_commit = vi.fn();
+  const copy_project = vi.fn();
+  const import_files = vi.fn();
+  const preview_import_files = vi.fn();
+  const import_rules = vi.fn();
+  const export_rules = vi.fn();
+  const read_import_text = vi.fn();
+  const export_prompt = vi.fn();
+  const generate_files = vi.fn();
+  const open_download = vi.fn();
   const agent = {
     get_snapshot: vi.fn(() => ({
       revision: 0,
@@ -317,15 +638,20 @@ function create_route_fixture() {
   } as unknown as AgentService;
   const services = {
     modelCatalog: { get_snapshot: () => catalog_snapshot },
-    app: { metadata: {}, settings: {}, updateSettings: update_settings },
+    app: { metadata: {}, settings: {}, updateSettings: update_settings, paths },
     project: {
-      lifecycle: { summarize_source_files },
+      lifecycle: { summarize_source_files, create_project_commit, copy_project },
       summary: {},
-      content: {},
+      content: { import_files, preview_import_files },
+      copy: { copy_project },
     },
     proofreading: { query: {}, commands: {} },
-    quality: { statistics: {}, rules: {}, prompts: {} },
-    files: { preview: {}, translationGeneration: {} },
+    quality: {
+      statistics: {},
+      rules: { import_rules, export_rules },
+      prompts: { read_import_text, export: export_prompt },
+    },
+    files: { preview: {}, translationGeneration: { generate_files, open_download } },
     model: {
       get_selection_snapshot: vi.fn(() => ({
         model_selection: { translation: "a", agent: "c" },
@@ -359,6 +685,10 @@ function create_route_fixture() {
     request: (method, route, handler) =>
       method === "GET" ? get(route, handler) : post_json(route, handler),
     createEventStreamResponse: vi.fn(),
+    establishWebSession: vi.fn(),
+    readWebBootstrap: vi.fn(() => ({})),
+    webFiles: options.webFiles === undefined ? web_files : options.webFiles,
+    agentSavePathHost: null,
     readLogFiles: vi.fn(),
     readLogPage: vi.fn(),
     readLogDetail: vi.fn(),
@@ -369,7 +699,16 @@ function create_route_fixture() {
     get,
     post_json,
     compact_context,
+    copy_project,
+    create_project_commit,
     delete_queued_message,
+    export_prompt,
+    export_rules,
+    generate_files,
+    import_files,
+    import_rules,
+    open_download,
+    preview_import_files,
     reset,
     input_command,
     input_command_status,
@@ -395,6 +734,16 @@ function read_get_handler(
   const handler = get.mock.calls.find(([candidate]) => candidate === route_path)?.[1];
   if (typeof handler !== "function") throw new Error(`GET 路由未注册：${route_path}`);
   return handler;
+}
+
+/** 读取已注册的字节流 GET handler，按原始 Request 调用以覆盖查询参数分支。 */
+function read_request_handler(
+  get: ReturnType<typeof vi.fn>,
+  route_path: string,
+): (request: Request) => Response {
+  const handler = get.mock.calls.find(([candidate]) => candidate === route_path)?.[1];
+  if (typeof handler !== "function") throw new Error(`GET 路由未注册：${route_path}`);
+  return handler as (request: Request) => Response;
 }
 
 /** 读取已注册 POST handler，缺失路径立即给出可定位错误。 */

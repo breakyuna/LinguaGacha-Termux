@@ -117,3 +117,25 @@
   height: 14px;
   stroke-width: 1.9;
 }
+
+/* 触屏没有悬停态，且窄视口已进入抽屉导航的手机布局：36px 工具栏按钮与 24px 输入组按钮
+   用不可见热区补到 40px 量级点击目标。::after 已被激活态下划线占用，热区统一走 ::before，
+   宽视口桌面不渲染任何变化。 */
+@media (hover: none), (max-width: 767px) {
+  .search-bar__actions [data-slot="button"],
+  .search-bar__input-addon [data-slot="button"] {
+    position: relative;
+  }
+
+  .search-bar__actions [data-slot="button"]:not(:disabled)::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+  }
+
+  .search-bar__input-addon [data-slot="button"]:not(:disabled)::before {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}

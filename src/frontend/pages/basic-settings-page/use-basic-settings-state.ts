@@ -3,6 +3,7 @@ import {
   push_toast,
   run_modal_progress_toast,
 } from "@frontend/app/feedback/desktop-toast";
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import { useCallback } from "react";
 
 import { format_project_settings_aligned_toast } from "@frontend/app/feedback/project-settings-alignment-feedback";
@@ -95,7 +96,7 @@ export function useBasicSettingsState(): UseBasicSettingsStateResult {
 
       if (next_mode === "FIXED") {
         try {
-          const result = await window.desktopApp.pickFixedProjectDirectory(
+          const result = await read_host_bridge().pickFixedProjectDirectory(
             snapshot.project_fixed_path,
           );
           const selected_path = result.paths[0] ?? "";

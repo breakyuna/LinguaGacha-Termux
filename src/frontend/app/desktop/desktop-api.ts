@@ -1,5 +1,6 @@
 import { JsonTool } from "../../../shared/utils/json-tool";
 import { normalize_backend_api_base_url } from "@shared/backend-api";
+import { read_host_bridge, type WebHostBootstrap } from "@frontend/app/host/host-bridge";
 import {
   normalize_log_level,
   read_log_content,
@@ -25,6 +26,33 @@ import {
 } from "@shared/update/windows-update-target";
 
 export type { LogDetail, LogEntry, LogLevel };
+
+const WEB_SESSION_ESTABLISH_PATH = "/api/web/session";
+const WEB_BOOTSTRAP_PATH = "/api/web/bootstrap";
+
+/**
+ * Web 宿主启动通道。宿主桥安装前没有注入的 API 地址，
+ * 这两个请求按同源相对路径发起，是 renderer 唯一的启动期后端入口。
+ */
+export async function establish_web_access_session_request(credential: string): Promise<boolean> {
+  const response = await fetch(WEB_SESSION_ESTABLISH_PATH, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ credential }),
+  });
+  return response.ok;
+}
+
+/** 读取服务端启动配置；文档注入缺失时由本接口兜底。 */
+export async function read_web_host_bootstrap_request(): Promise<WebHostBootstrap> {
+  const response = await fetch(WEB_BOOTSTRAP_PATH, { credentials: "same-origin" });
+  if (!response.ok) throw new Error("Web bootstrap configuration is unavailable.");
+  const payload = (await response.json()) as { data?: unknown };
+  const bootstrap = payload.data as WebHostBootstrap | undefined;
+  if (bootstrap === undefined) throw new Error("Web bootstrap configuration is invalid.");
+  return bootstrap;
+}
 
 type ApiEnvelope<data_type> = {
   ok: boolean;
@@ -147,7 +175,7 @@ function create_network_error(path: string, cause: unknown): DesktopApiError {
 
 /** 只消费宿主注入的地址，缺失时报告本地接入错误。 */
 function read_backend_api_base_url(): string {
-  const base_url = normalize_backend_api_base_url(window.desktopApp.backendApi.baseUrl);
+  const base_url = normalize_backend_api_base_url(window.desktopApp?.backendApi.baseUrl ?? "");
 
   if (base_url === "") {
     throw DesktopApiError.local("missing_backend_api_base_url");
@@ -496,7 +524,7 @@ export async function read_log_detail(
   return normalize_log_detail(payload.detail);
 }
 
-/** 外链不做应用级判断或改写，原样交给桌面宿主。 */
+/** 外链不做应用级判断或改写，原样交给宿主。 */
 export async function open_external_url(url: string): Promise<void> {
-  await window.desktopApp.openExternalUrl(url);
+  await read_host_bridge().openExternalUrl(url);
 }

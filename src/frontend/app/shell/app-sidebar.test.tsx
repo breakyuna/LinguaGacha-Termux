@@ -1,4 +1,4 @@
-import { act, type ComponentProps } from "react";
+import { act, type ComponentProps, type JSX, useState } from "react";
 import { ReplaceAll } from "lucide-react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,11 +7,23 @@ import type { AppLanguage } from "@domain/app-language";
 import { LocaleProvider } from "@frontend/app/locale/locale-provider";
 import { SidebarProvider } from "@frontend/shadcn/sidebar";
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
+import { AppTitlebar } from "./app-titlebar";
 import { AppSidebar } from "./app-sidebar";
+import { create_desktop_bridge_api_mock } from "../../../test/desktop-bridge-mock";
 
 vi.mock("./app-appearance-menu", () => ({ AppAppearanceMenu: () => null }));
 
+const SHEET_CONTENT_SELECTOR = '[data-slot="sheet-content"]';
+const INLINE_SIDEBAR_SELECTOR = '[data-slot="sidebar"]';
+
 type RenderSidebarOptions = Partial<ComponentProps<typeof AppSidebar>>;
+
+/** 按指定视口形态渲染，侧栏形态由媒体查询驱动。 */
+function stub_viewport(is_narrow: boolean): void {
+  vi.spyOn(window, "matchMedia").mockImplementation(() => {
+    return Object.assign(new EventTarget(), { matches: is_narrow }) as MediaQueryList;
+  });
+}
 
 describe("AppSidebar", () => {
   let root: Root | null = null;
@@ -165,5 +177,91 @@ describe("AppSidebar", () => {
     await render_sidebar(options, false);
     expect([enabled_child.tabIndex, disabled_child.tabIndex]).toEqual([-1, -1]);
     expect(enabled_child.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("宽视口保持并排侧栏，不渲染抽屉", async () => {
+    stub_viewport(false);
+    await render_sidebar();
+
+    expect(container?.querySelector(INLINE_SIDEBAR_SELECTOR)).not.toBeNull();
+    expect(document.querySelector(SHEET_CONTENT_SELECTOR)).toBeNull();
+  });
+
+  it("窄视口把导航收进抽屉，点击标题栏开关打开、选中导航后收起", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, "desktopApp");
+    Object.defineProperty(window, "desktopApp", {
+      configurable: true,
+      value: create_desktop_bridge_api_mock({ shell: { titleBarHeight: 0 } }),
+    });
+    stub_viewport(true);
+    const on_open_logs = vi.fn();
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    /** 折叠态由应用根持有，抽屉开关经同一状态提交，与真实壳层一致。 */
+    function ShellHost(): JSX.Element {
+      const [is_sidebar_collapsed, set_is_sidebar_collapsed] = useState(true);
+      return (
+        <LocaleProvider locale="zh-CN">
+          <TooltipProvider>
+            <SidebarProvider
+              open={!is_sidebar_collapsed}
+              onOpenChange={(is_open) => {
+                set_is_sidebar_collapsed(!is_open);
+              }}
+            >
+              <AppTitlebar title="LinguaGacha" />
+              <AppSidebar
+                groups={[]}
+                selected_route="project-home"
+                expanded_items={new Set()}
+                disabled_route_ids={new Set()}
+                app_language="ZH"
+                is_language_updating={false}
+                show_log_badge={false}
+                profile_label_key="app.profile.status"
+                profile_tooltip_key="app.profile.status_tooltip"
+                is_profile_update_available={false}
+                on_select_route={vi.fn()}
+                on_toggle_group={vi.fn()}
+                on_open_logs={on_open_logs}
+                on_select_app_language={vi.fn()}
+                on_profile_action={vi.fn()}
+              />
+            </SidebarProvider>
+          </TooltipProvider>
+        </LocaleProvider>
+      );
+    }
+    try {
+      await act(async () => {
+        root?.render(<ShellHost />);
+      });
+
+      // 窄视口导航不在流内并排，开关默认收起。
+      expect(container?.querySelector(INLINE_SIDEBAR_SELECTOR)).toBeNull();
+      expect(document.querySelector(SHEET_CONTENT_SELECTOR)).toBeNull();
+      const menu_button = container?.querySelector<HTMLButtonElement>(".topbar__menu-button");
+      if (!menu_button) throw new Error("缺少菜单开关按钮。");
+
+      await act(async () => {
+        menu_button.click();
+      });
+      const drawer = document.querySelector(SHEET_CONTENT_SELECTOR);
+      expect(drawer).not.toBeNull();
+
+      const logs_button = drawer?.querySelector<HTMLButtonElement>('button[aria-label="日志"]');
+      if (!logs_button) throw new Error("抽屉内缺少日志入口。");
+      await act(async () => {
+        logs_button.click();
+      });
+      // 选中导航即收起抽屉，触屏路径不需要再点遮罩。
+      expect(on_open_logs).toHaveBeenCalledOnce();
+      expect(document.querySelector(SHEET_CONTENT_SELECTOR)).toBeNull();
+    } finally {
+      if (descriptor) Object.defineProperty(window, "desktopApp", descriptor);
+      else Reflect.deleteProperty(window, "desktopApp");
+    }
   });
 });

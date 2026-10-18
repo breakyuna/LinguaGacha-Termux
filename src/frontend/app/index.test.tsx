@@ -13,6 +13,14 @@ vi.mock("./desktop/desktop-api", () => ({
     release_url: "https://example.com/release",
     windows_zip_urls: {},
   }),
+  // 应用壳挂载的选择器宿主会订阅 Agent 保存位置事件；桌面入口没有驻留请求，按空事实应答。
+  api_get: async () => ({ requests: [] }),
+  api_fetch: async () => ({}),
+  open_event_stream: () => ({
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    close: () => {},
+  }),
 }));
 vi.mock("./state/desktop-state-provider", () => ({
   DesktopStateProvider: ({ children }: PropsWithChildren) => children,

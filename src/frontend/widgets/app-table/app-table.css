@@ -84,14 +84,23 @@
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
+  /* 窄于最小宽度时由表格自身容器横向滚动，桌面容器宽于它时保持 100% 宽度。 */
+  min-width: var(--app-table-min-width, 0);
   --table-row-height-current: var(--app-table-row-height);
   --table-header-bg-current: var(--app-table-header-bg);
   --table-hover-current: var(--app-table-hover);
   --table-selected-current: var(--app-table-selected);
 }
 
-.app-table__table [data-slot="table-container"] {
+/* 表头不响应横向滚动手势，偏移由表格组件同步正文滚动位置。 */
+.app-table__head-wrap [data-slot="table-container"] {
   overflow: hidden;
+}
+
+/* 必要横向滚动局限在表格自身容器；纵向滚动仍由 ScrollArea 独占。 */
+.app-table__scroll [data-slot="table-container"] {
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .app-table__head [data-slot="table-head"] {
@@ -162,6 +171,20 @@
 .app-table__sort-trigger:disabled {
   opacity: 0.16;
   transform: none;
+}
+
+/* 触屏没有悬停高亮，排序入口提高基础不透明度并用不可见热区补齐 40px 量级的点击目标。 */
+@media (hover: none) {
+  .app-table__sort-trigger {
+    position: relative;
+    opacity: 0.72;
+  }
+
+  .app-table__sort-trigger:not(:disabled)::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
 }
 
 .app-table__table [data-slot="table-cell"] {

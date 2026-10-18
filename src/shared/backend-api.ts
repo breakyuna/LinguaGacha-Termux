@@ -1,5 +1,8 @@
 export const BACKEND_API_HOST = "127.0.0.1"; // Backend API 只监听本机 IPv4 回环地址，renderer 通过 preload 获得完整 base URL
 
+// Web 访问会话 Cookie 名；一次性启动凭据换来的会话令牌，服务端与 renderer 共用同一名称
+export const WEB_ACCESS_SESSION_COOKIE_NAME = "lg_web_session";
+
 const BACKEND_API_BASE_URL_ARG_PREFIX = "--backend-api-base-url=";
 
 // base URL 在进入 renderer 前统一去掉尾部斜杠，避免调用层重复处理路径拼接

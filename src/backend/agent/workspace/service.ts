@@ -123,6 +123,15 @@ export type AgentWorkspaceRunPort = (
 
 export type AgentWorkspaceImage = Readonly<{ path: string; image: AgentImage }>;
 
+/**
+ * 工作区宿主能力事实。图片与 PDF 宿主按运行环境注入，模型可见说明按此投影，
+ * 能力缺失时不声明对应成员，避免模型调用必然失败的能力。
+ */
+export type AgentWorkspaceHostCapabilities = Readonly<{
+  imageOutput: boolean;
+  pdf: boolean;
+}>;
+
 type ActiveAgentWorkspace = {
   projectPath: string; // snapshot 建立时绑定的工程身份
   projectEpoch: number; // 隔离同路径重新加载后的旧快照
@@ -161,6 +170,14 @@ export class AgentWorkspaceService {
     return this.directories.path(this.chat_id);
   }
 
+  /** 宿主能力按真实注入结果报告，Agent 工具说明与能力界面共用此事实。 */
+  public get host_capabilities(): AgentWorkspaceHostCapabilities {
+    return Object.freeze({
+      imageOutput: this.options.images.available,
+      pdf: this.options.pdfHost !== undefined,
+    });
+  }
+
   /** 查询现有文件事实，不触发工作区生成或解析原稿。 */
   public async list_files(): Promise<AgentFileCandidate[]> {
     const snapshot = this.options.cache.snapshot();
@@ -190,7 +207,7 @@ export class AgentWorkspaceService {
   /** 注入当前工程读侧、唯一写入口与 Node 脚本端口。 */
   public constructor(
     private readonly options: {
-      images: Pick<AgentImageService, "prepare">;
+      images: Pick<AgentImageService, "prepare" | "available">;
       paths: Pick<AppPathService, "get_agent_workspace_root_dir">;
       settings: Pick<AppSettingService, "read_setting">;
       sessionState: Pick<ProjectSessionState, "require_loaded_project_path">;
@@ -215,7 +232,7 @@ export class AgentWorkspaceService {
       pdfHost?: PDFHost | undefined;
       runtimeDirectory: string; // 当前应用版本部署的预加载模块与 npm 依赖目录
       openDirectory: (path: string) => Promise<void>;
-      pickSavePath: (defaultName: string) => Promise<string | null>;
+      pickSavePath?: (defaultName: string) => Promise<string | null>;
       nativeFs?: NativeFs;
     },
   ) {
@@ -273,6 +290,11 @@ export class AgentWorkspaceService {
       if (target.kind === "directory") {
         await this.options.openDirectory(target.path);
         return { status: "opened" };
+      }
+      if (this.options.pickSavePath === undefined) {
+        throw new AppErrors.AppError("runtime.capability_missing", {
+          diagnostic_context: { reason: "save_path_host_missing" },
+        });
       }
       const destination = await this.options.pickSavePath(this.describe_target(target).name);
       if (destination === null) return { status: "cancelled" };
@@ -967,6 +989,7 @@ export type AgentWorkspacePort = Pick<
   | "read_document_image"
   | "describe_file"
   | "invalidate_links"
+  | "host_capabilities"
 > & {
   uploads: Pick<AgentUploadStore, "upload" | "get" | "read_image" | "open">;
 };

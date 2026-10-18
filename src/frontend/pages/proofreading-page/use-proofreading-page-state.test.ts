@@ -2849,6 +2849,7 @@ describe("useProofreadingPageState", () => {
     expect(api_fetch).toHaveBeenCalledWith("/api/batch-translation/start", {
       operation: "retranslate",
       scope: { kind: "items", item_ids: [2, 1] },
+      command_id: expect.any(String),
     });
     expect(runtime_fixture.current.sync_task_snapshot).toHaveBeenCalledWith(
       expect.objectContaining({

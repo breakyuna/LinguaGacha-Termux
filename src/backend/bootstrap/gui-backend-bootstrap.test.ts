@@ -15,6 +15,7 @@ import { BackendServices } from "./backend-services";
 import { AgentService } from "../agent/agent-service";
 import { WebSearchService } from "../agent/web-search-service";
 import { ApiGatewayServer } from "../api/api-gateway-server";
+import { create_web_access_session } from "../api/web-access-session";
 
 import { GuiBackendBootstrap } from "./gui-backend-bootstrap";
 import { AppPathService } from "../app/app-path-service";
@@ -390,6 +391,147 @@ describe("GuiBackendBootstrap 集成", () => {
         ok: false,
         error: { code: "file.not_found" },
       });
+    } finally {
+      await bootstrap.stop();
+    }
+
+    expect(bootstrap.isStopped()).toBe(true);
+  });
+
+  it("Web 传输的保存位置请求经 SSE 驻留并由路由应答放行", async ({ onTestFinished }) => {
+    const app_root = fs.mkdtempSync(path.join(os.tmpdir(), "linguagacha-gui-web-save-"));
+    onTestFinished(() => fs.rmSync(app_root, { recursive: true, force: true }));
+    const destination = path.join(app_root, "web-saved.md");
+    // 显式创建访问会话，测试可直接读取一次性凭据完成会话建立。
+    const access_session = create_web_access_session();
+    // Web 模式不注入 pickSavePath：组合根创建浏览器桥接宿主，保存请求经 SSE 驻留。
+    const { pickSavePath: _pick_save_path, ...options } = create_options(app_root);
+    const bootstrap = new GuiBackendBootstrap({
+      ...options,
+      webGateway: {
+        hostname: "127.0.0.1",
+        port: 0,
+        accessSession: access_session,
+      },
+    });
+
+    try {
+      const started = await bootstrap.start();
+      const established = await fetch(`${started.apiBaseUrl}/api/web/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: access_session.credential }),
+      });
+      expect(established.status).toBe(204);
+      const cookie = (established.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+      const api = async (
+        path: string,
+        body: Record<string, unknown> = {},
+      ): Promise<{ status: number; payload: Record<string, unknown> }> => {
+        const response = await fetch(`${started.apiBaseUrl}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie },
+          body: JSON.stringify(body),
+        });
+        return {
+          status: response.status,
+          payload: (await response.json()) as Record<string, unknown>,
+        };
+      };
+
+      const source = path.join(app_root, "source.txt");
+      fs.writeFileSync(source, "source");
+      const project = await api("/api/session/project/create", {
+        path: path.join(app_root, "test.lg"),
+        source_paths: [source],
+        project_settings: {
+          source_language: "EN",
+          target_language: "ZH",
+          skip_duplicate_source_text_enable: true,
+          mtool_optimizer_enable: false,
+        },
+      });
+      expect(project.payload).toMatchObject({ ok: true });
+      const snapshot_response = await fetch(`${started.apiBaseUrl}/api/agent/snapshot`, {
+        headers: { cookie },
+      });
+      const snapshot_payload = (await snapshot_response.json()) as {
+        data?: Record<string, unknown>;
+      };
+      const chat_id = String(snapshot_payload.data?.["chatId"] ?? "");
+      const workspace_root = new AppPathService({
+        appRoot: app_root,
+        builtinRoot: path.join(app_root, "builtin"),
+      }).get_agent_workspace_root_dir();
+      const directory = path.join(workspace_root, chat_id, "work");
+      fs.mkdirSync(directory, { recursive: true });
+      const file = path.join(directory, "结果.md");
+      fs.writeFileSync(file, "报告");
+
+      // 订阅 SSE 后再触发保存：桥接宿主先发布驻留请求。
+      const stream = await fetch(`${started.apiBaseUrl}/api/events/stream`, {
+        headers: { cookie },
+      });
+      const reader = stream.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const pending_request = new Promise<{ request_id: string; default_name: string }>(
+        (resolve) => {
+          void (async (): Promise<void> => {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) throw new Error("SSE 流意外关闭");
+              buffer += decoder.decode(value, { stream: true });
+              const frames = buffer.split("\n\n");
+              buffer = frames.pop() ?? "";
+              for (const frame of frames) {
+                if (!frame.includes("agent.save_path_event")) continue;
+                const data_line = frame.split("\n").find((line) => line.startsWith("data: "));
+                if (data_line === undefined) continue;
+                const payload = JSON.parse(data_line.slice(6)) as Record<string, unknown>;
+                if (payload["type"] !== "requested") continue;
+                resolve({
+                  request_id: String(payload["request_id"]),
+                  default_name: String(payload["default_name"]),
+                });
+                return;
+              }
+            }
+          })().catch(() => undefined);
+        },
+      );
+
+      const activating = api("/api/agent/workspace/activate-path", {
+        path: "work/结果.md",
+      });
+      const request = await pending_request;
+      expect(request.default_name).toBe("结果.md");
+
+      // 迟连接领取：请求仍在驻留列表中。
+      const pending = await api("/api/agent/save-path/pending");
+      expect(pending.payload).toEqual({
+        ok: true,
+        data: { requests: [{ request_id: request.request_id, default_name: "结果.md" }] },
+      });
+
+      // 浏览器应答保存位置，桥接宿主放行工作区保存。
+      const responded = await api("/api/agent/save-path/respond", {
+        request_id: request.request_id,
+        path: destination,
+      });
+      expect(responded.payload).toEqual({ ok: true, data: {} });
+      const activated = await activating;
+      expect(activated.status).toBe(200);
+      expect(activated.payload).toEqual({ ok: true, data: { status: "saved" } });
+      expect(fs.readFileSync(destination, "utf8")).toBe("报告");
+
+      // 未知身份按参数错误拒绝，避免应答幽灵请求。
+      const unknown = await api("/api/agent/save-path/respond", {
+        request_id: "missing",
+        path: null,
+      });
+      expect(unknown.status).toBe(400);
+      await reader.cancel();
     } finally {
       await bootstrap.stop();
     }

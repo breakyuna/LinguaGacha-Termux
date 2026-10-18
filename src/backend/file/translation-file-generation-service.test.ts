@@ -495,10 +495,24 @@ describe("TranslationFileGenerationService", () => {
       `demo_${text("app.translation_generation.directory.bilingual")}`,
     );
 
-    await expect(service.generate_files()).resolves.toEqual({
+    const result = await service.generate_files();
+
+    expect(result).toEqual({
       accepted: true,
       pdf_files: [],
       output_path: translated_path,
+      files: [
+        {
+          name: "script.txt",
+          path: path.join(translated_path, "script.txt"),
+          size: fs.statSync(path.join(translated_path, "script.txt")).size,
+        },
+        {
+          name: "script.txt",
+          path: path.join(bilingual_path, "script.txt"),
+          size: fs.statSync(path.join(bilingual_path, "script.txt")).size,
+        },
+      ],
     });
 
     expect(fs.readFileSync(path.join(translated_path, "script.txt"), "utf-8")).toBe("Übersetzung");
@@ -699,5 +713,106 @@ describe("TranslationFileGenerationService", () => {
       create_pdf_execution(),
     );
     await expect(service.generate_files()).rejects.toBe(error);
+  });
+
+  it("译文输出目录进入受控下载边界，目录外路径一律拒绝", async () => {
+    const project_path = path.join(temp_dir, "demo.lg");
+    const session_state = new ProjectSessionState();
+    session_state.mark_loaded(project_path);
+    const database = create_database([
+      {
+        id: 1,
+        src: "原文",
+        dst: "译文",
+        status: "PROCESSED",
+        file_type: "TXT",
+        file_path: "script.txt",
+        row: 0,
+      },
+    ]);
+    const service = new TranslationFileGenerationService(
+      database,
+      create_setting_service(),
+      session_state,
+      vi.fn<OutputFolderOpener>(),
+      create_pdf_execution(),
+    );
+
+    const result = await service.generate_files();
+    const translated_directory = path.join(temp_dir, "demo_译文");
+    const bilingual_directory = path.join(temp_dir, "demo_译文_双语对照");
+
+    expect(result.files?.map((file) => file.name)).toEqual(["script.txt", "script.txt"]);
+    const directories = service.read_output_directories();
+    expect(directories).toHaveLength(2);
+    expect(directories).toContain(translated_directory);
+    expect(directories).toContain(bilingual_directory);
+
+    const download = service.open_download(path.join(translated_directory, "script.txt"));
+    expect(download.name).toBe("script.txt");
+    expect(download.size).toBe(fs.statSync(path.join(translated_directory, "script.txt")).size);
+    await new Promise<void>((resolve) => {
+      download.stream.on("error", () => resolve());
+      download.stream.on("close", () => resolve());
+      download.stream.destroy();
+    });
+
+    const outside_path = path.join(temp_dir, "outside.txt");
+    fs.writeFileSync(outside_path, "外部文件");
+    expect(() => service.open_download(outside_path)).toThrow(AppError);
+    expect(() => service.open_download(project_path)).toThrow(AppError); // 工程本体不是输出目录内容
+    expect(() => service.open_download("")).toThrow(AppError);
+
+    const unloaded = new TranslationFileGenerationService(
+      database,
+      create_setting_service(),
+      new ProjectSessionState(),
+      vi.fn<OutputFolderOpener>(),
+      create_pdf_execution(),
+    );
+    expect(() => unloaded.open_download(path.join(translated_directory, "script.txt"))).toThrow(
+      AppError,
+    );
+  });
+
+  it("输出目录撞名后历史生成目录仍在受控下载边界内", async () => {
+    const project_path = path.join(temp_dir, "demo.lg");
+    const session_state = new ProjectSessionState();
+    session_state.mark_loaded(project_path);
+    const database = create_database([
+      {
+        id: 1,
+        src: "原文",
+        dst: "译文",
+        status: "PROCESSED",
+        file_type: "TXT",
+        file_path: "script.txt",
+        row: 0,
+      },
+    ]);
+    const service = new TranslationFileGenerationService(
+      database,
+      create_setting_service(),
+      session_state,
+      vi.fn<OutputFolderOpener>(),
+      create_pdf_execution(),
+    );
+
+    await service.generate_files();
+    const first_output = path.join(temp_dir, "demo_译文", "script.txt");
+    const second = await service.generate_files();
+
+    expect(second.output_path).not.toBe(path.join(temp_dir, "demo_译文"));
+    expect(service.read_output_directories()).toHaveLength(4);
+    const download = service.open_download(first_output);
+    await new Promise<void>((resolve) => {
+      download.stream.on("error", () => resolve());
+      download.stream.on("close", () => resolve());
+      download.stream.destroy();
+    });
+    // 时间戳目录之外的同名目录不进入边界。
+    const decoy = path.join(temp_dir, "demo_译文_备份");
+    fs.mkdirSync(decoy, { recursive: true });
+    expect(service.read_output_directories()).not.toContain(decoy);
   });
 });

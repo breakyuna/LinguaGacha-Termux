@@ -9,14 +9,16 @@ import {
   AGENT_WORKSPACE_RUNTIME_POLICY,
 } from "../workspace/runtime/policy";
 import { format_agent_workspace_typescript_api } from "../workspace/runtime/api-description";
-import type { AgentWorkspacePort } from "../workspace/service";
+import type { AgentWorkspaceHostCapabilities, AgentWorkspacePort } from "../workspace/service";
 import app_package from "../../../../package.json";
 
 /** 执行程序并刷新技能事实，随后投影模型可见的执行记录与图片。 */
 export function create_agent_workspace_run_tool(options: {
   run: (script: string, signal: AbortSignal) => ReturnType<AgentWorkspacePort["run"]>;
   refresh_skills: () => Promise<unknown>;
+  capabilities: AgentWorkspaceHostCapabilities;
 }): ToolRegistration {
+  const { capabilities } = options;
   return define_agent_tool({
     name: "workspace_run",
     description: [
@@ -39,11 +41,26 @@ export function create_agent_workspace_run_tool(options: {
       `- 可以写入 ${AGENT_WORKSPACE_RUNTIME_POLICY.writeRoots.map((root) => `${root}/**`).join("、")}。目录链接沿入口权限使用。`,
       "- 禁止创建子进程、启动 worker 或加载原生扩展（native addons）。",
       "",
+      "### 宿主能力",
+      "",
+      // 能力说明与运行时注入保持一致：缺失的能力不声明接口，模型不会尝试必然失败的调用。
+      ...(capabilities.imageOutput
+        ? [
+            `- 图片输出可用：每次程序最多输出 ${AGENT_WORKSPACE_RUNTIME_POLICY.imageCount} 张图片，更多图片分到后续 workspace_run 调用。`,
+          ]
+        : [
+            "- 图片输出不可用（图片宿主未安装）：不要调用 `emitImage`，需要查看原稿图片时直接说明该能力不可用。",
+          ]),
+      ...(capabilities.pdf
+        ? [
+            '- PDF 打印可用：`ws.host({ kind: "print_pdf", html })` 由宿主打印静态 HTML，结果落盘到 `work/`。',
+          ]
+        : ["- PDF 打印不可用（PDF 宿主未安装）：不要调用 `ws.host`。"]),
+      "",
       "### 输出",
       "",
       `- 执行时限为 ${AGENT_WORKSPACE_RUNTIME_POLICY.timeoutMs / 1000} 秒。程序在事件循环空闲时自然退出。`,
       "- 按任务需要选择输出内容和格式，使用 `console.log` 输出结果。",
-      `- 每次程序最多输出 ${AGENT_WORKSPACE_RUNTIME_POLICY.imageCount} 张图片，更多图片分到后续 workspace_run 调用。`,
       "- 每次执行都会保存 `stdout` 和 `stderr` 文件，无输出时文件为空。",
       `- 每路不超过 ${AGENT_WORKSPACE_RUNTIME_POLICY.inlineOutputBytes / 1024} KiB 时直接返回完整内容。超额时返回文件路径和补读提示。请读取当前任务所需的部分。`,
       "",
@@ -83,7 +100,7 @@ export function create_agent_workspace_run_tool(options: {
       "",
       "以下 TypeScript 声明仅用于描述接口，脚本请使用 JavaScript 编写：",
       "```ts",
-      format_agent_workspace_typescript_api(),
+      format_agent_workspace_typescript_api(capabilities),
       "```",
     ].join("\n"),
     executionMode: "sequential",

@@ -1,3 +1,4 @@
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import {
   push_error_toast,
   push_toast,
@@ -55,6 +56,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@frontend/shadcn/toolti
 import { type LocaleKey, useI18n } from "@frontend/app/locale/locale-context";
 import { has_path_drop_payload, resolve_dropped_path } from "@frontend/app/desktop/file-drop-paths";
 import { normalize_source_paths } from "@frontend/app/desktop/source-paths";
+import { release_web_file_materials } from "@frontend/features/web-file-picker/web-file-picker-api";
 import {
   format_source_file_parse_failure_error_toast,
   format_source_file_parse_failure_toast,
@@ -96,7 +98,21 @@ type SelectedProject = {
 type SelectedSource = ProjectSourceFileSummary & {
   source_paths: string[]; // 创建工程时原样提交的归一化用户选择
   output_name_seed_path: string; // 仅取首个选择推导默认工程文件名
+  material_ids: string[]; // 上传暂存材料身份，创建成功后由前后端共同释放
 };
+
+/**
+ * 释放不会进入任何选择的上传材料。
+ * 释放失败只留下后端保留时长清理，本次反馈路径不叠加错误。
+ */
+async function release_undelivered_source_materials(material_ids: readonly string[]): Promise<void> {
+  if (material_ids.length === 0) return;
+  try {
+    await release_web_file_materials(material_ids);
+  } catch {
+    // 材料仍由后端按保留时长清理，不影响已经给出的失败反馈。
+  }
+}
 
 /**
  * 最近工程缺失时弹窗只需要记住待移除路径。
@@ -713,11 +729,18 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
 
   /**
    * 选择一个或多个源路径后，让后端按支持格式收集真实导入文件。
+   * 上传暂存材料随路径一起进入选择，材料身份留给创建成功后的释放。
    */
-  async function handle_select_source_paths(source_paths: string[]): Promise<void> {
+  async function handle_select_source_paths(
+    source_paths: string[],
+    material_ids: string[] = [],
+  ): Promise<void> {
     const normalized_source_paths = normalize_source_paths(source_paths);
+    const normalized_material_ids = [...new Set(material_ids)];
     if (normalized_source_paths.length === 0) {
       set_selected_source(null);
+      // 没有可用源路径时本次上传不会进入任何选择，就地释放避免占用暂存区。
+      await release_undelivered_source_materials(normalized_material_ids);
       push_toast("warning", t("project_page.create.unavailable"));
       return;
     }
@@ -735,6 +758,8 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
 
       if (source_file_count === 0) {
         set_selected_source(null);
+        // 摘要失败同样不会留下可提交选择，材料继续暂存只会耗尽暂存区额度。
+        await release_undelivered_source_materials(normalized_material_ids);
         const failure_toast = format_source_file_parse_failure_toast(payload.failed_files);
         if (failure_toast !== null)
           push_error_toast(t("project_page.create.unavailable"), failure_toast);
@@ -746,10 +771,12 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
           source_file_count,
           format_hit_counts: normalize_project_source_format_hit_counts(payload.format_hit_counts),
           output_name_seed_path,
+          material_ids: normalized_material_ids,
         });
       }
     } catch {
       set_selected_source(null);
+      await release_undelivered_source_materials(normalized_material_ids);
       push_toast("warning", t("project_page.create.unavailable"));
     } finally {
       set_is_source_checking(false);
@@ -765,41 +792,53 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
 
   /**
    * 打开系统文件选择器，保留多选结果的完整路径集合。
+   * 浏览器没有系统对话框，能力缺失时给出可见提示而不是静默失败。
    */
   async function handle_select_source_file(): Promise<void> {
-    const result = await window.desktopApp.pickProjectSourceFilePath();
-    const selected_path = result.paths[0] ?? null;
-    if (result.canceled || selected_path === null) {
-      return;
-    }
+    try {
+      const result = await read_host_bridge().pickProjectSourceFilePath();
+      if (result.canceled) {
+        return;
+      }
 
-    await handle_select_source_paths(result.paths);
+      await handle_select_source_paths(result.paths, result.material_ids ?? []);
+    } catch (error) {
+      push_error_toast(t("app.web_access.capability_unavailable"), error);
+    }
   }
 
   /**
    * 打开系统目录选择器，目录模式只返回单个根路径。
    */
   async function handle_select_source_folder(): Promise<void> {
-    const result = await window.desktopApp.pickProjectSourceDirectoryPath();
-    const selected_path = result.paths[0] ?? null;
-    if (result.canceled || selected_path === null) {
-      return;
-    }
+    try {
+      const result = await read_host_bridge().pickProjectSourceDirectoryPath();
+      const selected_path = result.paths[0] ?? null;
+      if (result.canceled || selected_path === null) {
+        return;
+      }
 
-    await handle_select_source_path(selected_path);
+      await handle_select_source_path(selected_path);
+    } catch (error) {
+      push_error_toast(t("app.web_access.capability_unavailable"), error);
+    }
   }
 
   /**
    * 打开系统工程文件选择器并进入预览流程。
    */
   async function handle_select_project_file(): Promise<void> {
-    const result = await window.desktopApp.pickProjectFilePath();
-    const selected_path = result.paths[0] ?? null;
-    if (result.canceled || selected_path === null) {
-      return;
-    }
+    try {
+      const result = await read_host_bridge().pickProjectFilePath();
+      const selected_path = result.paths[0] ?? null;
+      if (result.canceled || selected_path === null) {
+        return;
+      }
 
-    await select_project_path(selected_path);
+      await select_project_path(selected_path);
+    } catch (error) {
+      push_error_toast(t("app.web_access.capability_unavailable"), error);
+    }
   }
 
   /**
@@ -878,14 +917,23 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
 
   /**
    * 按保存模式解析新建工程输出路径，固定目录缺失时先请求用户选择。
+   * 上传暂存材料没有“源文件同级”语义，SOURCE 模式改用保存选择器定位输出。
    */
-  async function resolve_project_output_path(source_path: string): Promise<string | null> {
+  async function resolve_project_output_path(
+    source_path: string,
+    material_ids: string[],
+  ): Promise<string | null> {
     const default_file_name = build_default_project_file_name(source_path);
     const save_mode = settings_snapshot.project_save_mode;
 
-    if (save_mode === "MANUAL") {
-      const result = await window.desktopApp.pickProjectSavePath(default_file_name);
-      return result.canceled ? null : (result.paths[0] ?? null);
+    if (save_mode === "MANUAL" || (save_mode === "SOURCE" && material_ids.length > 0)) {
+      try {
+        const result = await read_host_bridge().pickProjectSavePath(default_file_name);
+        return result.canceled ? null : (result.paths[0] ?? null);
+      } catch (error) {
+        push_error_toast(t("app.web_access.capability_unavailable"), error);
+        return null;
+      }
     }
 
     if (save_mode === "SOURCE") {
@@ -895,13 +943,19 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
 
     let fixed_directory = settings_snapshot.project_fixed_path;
     if (fixed_directory === "") {
-      const result = await window.desktopApp.pickFixedProjectDirectory();
-      const selected_path = result.paths[0] ?? null;
-      if (result.canceled || selected_path === null) {
+      try {
+        const result = await read_host_bridge().pickFixedProjectDirectory();
+        const selected_path = result.paths[0] ?? null;
+        if (result.canceled || selected_path === null) {
+          return null;
+        }
+
+        fixed_directory = selected_path;
+      } catch (error) {
+        push_error_toast(t("app.web_access.capability_unavailable"), error);
         return null;
       }
 
-      fixed_directory = selected_path;
       await api_fetch<SettingsPayload>("/api/settings/update", {
         project_fixed_path: fixed_directory,
       });
@@ -925,7 +979,8 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
       const loaded_default_preset_names = collect_loaded_default_preset_names(settings_snapshot, t);
       const source_path = selected_source.output_name_seed_path;
       const source_paths = selected_source.source_paths;
-      const output_path = await resolve_project_output_path(source_path);
+      const material_ids = selected_source.material_ids;
+      const output_path = await resolve_project_output_path(source_path, material_ids);
       if (output_path === null || output_path === "") {
         return;
       }
@@ -939,6 +994,8 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
             "/api/session/project/create",
             {
               source_paths,
+              // 材料身份由后端解析为暂存路径并入源文件，提交成功后统一释放。
+              material_ids,
               path: normalized_output_path,
               project_settings: build_project_prefilter_settings(settings_snapshot),
             },
@@ -959,6 +1016,8 @@ export function ProjectPage(_props: ProjectPageProps): JSX.Element {
             name: extract_stem(extract_file_name(created_project_path)),
           });
           await Promise.all([refresh_recent_projects(), refresh_batch_translation()]);
+          // 本次上传的材料（含文件夹批次目录）由前端统一释放，后端释放保持现状，重复释放无害。
+          if (material_ids.length > 0) await release_web_file_materials(material_ids);
         },
       });
       if (loaded_default_preset_names.length > 0) {

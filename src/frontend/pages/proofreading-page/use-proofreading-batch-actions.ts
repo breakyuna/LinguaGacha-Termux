@@ -1,11 +1,16 @@
 import type { ProofreadingProjectWriteRunner } from "./proofreading-page-state-contract";
 import { is_proofreading_page_row_id } from "@shared/proofreading/proofreading-types";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import type { ItemManualStatus } from "@domain/item";
 import { api_fetch } from "@frontend/app/desktop/desktop-api";
 import type { BatchTranslationSnapshot } from "@domain/batch-translation";
 import { normalize_batch_translation_snapshot } from "@shared/batch-translation/batch-translation";
+import {
+  is_uncertain_batch_translation_start_error,
+  probe_batch_translation_acceptance,
+  type BatchTranslationStartAck,
+} from "@frontend/app/session/batch-translation/batch-translation-start-command";
 
 import type { TextResolver } from "@shared/i18n";
 import { PROOFREADING_STATUS_LABEL_KEY_BY_CODE } from "@frontend/features/proofreading/proofreading-label-keys";
@@ -19,11 +24,6 @@ import type {
   ProofreadingPendingConfirmation,
 } from "@frontend/pages/proofreading-page/proofreading-page-ui-types";
 import type { ProjectDataSectionRevisions } from "@shared/project-event";
-
-type RetranslateTaskAck = {
-  accepted?: boolean;
-  batch_translation?: Partial<BatchTranslationSnapshot> & Record<string, unknown>;
-};
 
 type UseProofreadingBatchActionsOptions = {
   readonly: boolean;
@@ -61,6 +61,11 @@ function read_item_ids(items: ProofreadingCommandItemSnapshot[]): number[] {
   return [...new Set(items.map((item) => Number(item.item_id)))];
 }
 
+/** 同一组目标视为同一次用户意图，重试沿用原命令身份。 */
+function is_same_item_ids(left: number[], right: number[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
 // 校对页批量动作的唯一归宿：高风险动作先确认，状态设置保持直接提交。
 export function useProofreadingBatchActions(
   options: UseProofreadingBatchActionsOptions,
@@ -83,6 +88,11 @@ export function useProofreadingBatchActions(
   } = options;
   const [pending_confirmation, set_pending_confirmation] =
     useState<ProofreadingPendingConfirmation | null>(null);
+  // 最近一次结果未确认的重翻命令身份，同范围重试复用以去重
+  const pending_retranslate_command_ref = useRef<{
+    command_id: string;
+    item_ids: number[];
+  } | null>(null);
 
   /** 批量写入口同时检查文本身份、运行占用与刷新状态。 */
   const can_request_action = useCallback(
@@ -121,16 +131,43 @@ export function useProofreadingBatchActions(
 
       remember_preferred_row_id(resolve_preferred_row_id(preferred_row_id));
       set_is_writing(true);
+      // 为什么：同一范围的重试复用同一命令身份，回包丢失后由后端去重，避免二次受理撞上运行互斥
+      const pending = pending_retranslate_command_ref.current;
+      const command_id =
+        pending !== null && is_same_item_ids(pending.item_ids, item_ids)
+          ? pending.command_id
+          : crypto.randomUUID();
+      pending_retranslate_command_ref.current = { command_id, item_ids };
       try {
-        const ack = await api_fetch<RetranslateTaskAck>("/api/batch-translation/start", {
+        const ack = await api_fetch<BatchTranslationStartAck>("/api/batch-translation/start", {
           operation: "retranslate",
           scope: { kind: "items", item_ids },
+          command_id,
         });
         sync_task_snapshot(normalize_batch_translation_snapshot(ack));
+        pending_retranslate_command_ref.current = null;
         if (dialog_open) {
           close_edit_dialog();
         }
       } catch (error) {
+        if (is_uncertain_batch_translation_start_error(error)) {
+          // 命令可能已被受理而回包丢失，先重查快照再决定是否反馈失败
+          const acceptance = await probe_batch_translation_acceptance();
+          if (acceptance.outcome === "accepted") {
+            sync_task_snapshot(acceptance.snapshot);
+            pending_retranslate_command_ref.current = null;
+            if (dialog_open) {
+              close_edit_dialog();
+            }
+            return;
+          }
+          // 查询也失败时保留身份，同范围重试继续去重
+          if (acceptance.outcome === "rejected") {
+            pending_retranslate_command_ref.current = null;
+          }
+        } else {
+          pending_retranslate_command_ref.current = null;
+        }
         handle_api_error(error, t("proofreading_page.feedback.retranslate_failed"));
       } finally {
         set_is_writing(false);
@@ -278,6 +315,8 @@ export function useProofreadingBatchActions(
   /** 工程边界切换时撤销旧确认范围。 */
   const clear_pending_confirmation = useCallback((): void => {
     set_pending_confirmation(null);
+    // 工程边界切换后旧命令身份不再有效
+    pending_retranslate_command_ref.current = null;
   }, []);
 
   /** 确认动作与已登记操作匹配后，提交并释放确认状态。 */

@@ -3,6 +3,7 @@ import { AppError, is_app_error } from "../../shared/error";
 import type {
   PDFFileGenerationResult,
   TranslationFileGenerationResult,
+  TranslationGeneratedFile,
 } from "../../shared/translation-generation";
 import { render_pdf_translation } from "./pdf/pdf-translation";
 import { PDFFormat } from "./pdf/pdf-format";
@@ -14,6 +15,7 @@ import type { LogManager } from "../log/log-manager";
 import { AppSettingService } from "../app/app-setting-service";
 import { ProjectSessionState } from "../project/project-session-state";
 import { FileFormatService } from "./file-format-service";
+import { is_path_inside } from "./path-boundary";
 import { type Item, create_item } from "../../domain/item";
 import { resolve_app_locale, type AppLanguage } from "../../domain/app-language";
 import { normalize_setting_snapshot, type SettingSnapshot } from "../../domain/setting";
@@ -31,6 +33,9 @@ type FileGenerationLogManager = Pick<LogManager, "info" | "error">;
  * 文件译文生成日志使用固定 source，便于日志侧区分文件域输出
  */
 const FILE_GENERATION_LOG_SOURCE = "translation-generation";
+
+/** 撞名时追加的译文输出目录时间戳后缀，与 build_generation_paths 使用同一格式。 */
+const GENERATION_DIRECTORY_TIMESTAMP_PATTERN = /^_\d{8}_\d{6}$/u;
 
 export type OutputFolderOpener = (output_path: string) => Promise<void>;
 
@@ -68,8 +73,74 @@ export class TranslationFileGenerationService {
         accepted: true as const,
         output_path: paths.translated_path,
         pdf_files,
+        // 本次生成的输出文件清单按实际落盘内容读取，供浏览器受控下载定位。
+        files: this.read_generated_files(paths),
       };
     }, true);
+  }
+
+  /**
+   * 受控下载边界：与生成共用同一目录命名，只列举当前工程目录下已存在的译文输出目录。
+   */
+  public read_output_directories(): string[] {
+    const state = this.session_state.snapshot();
+    if (!state.loaded) return [];
+    const config = normalize_setting_snapshot(this.app_setting_service.read_setting());
+    const { project_dir, translated_base, bilingual_base } = this.resolve_output_directory_names(
+      state.projectPath,
+      config.app_language,
+    );
+    if (!this.native_fs.exists(project_dir)) return [];
+    return this.native_fs
+      .read_dirents(project_dir)
+      .filter(
+        (dirent) =>
+          dirent.isDirectory() &&
+          (is_generation_directory(dirent.name, translated_base) ||
+            is_generation_directory(dirent.name, bilingual_base)),
+      )
+      .map((dirent) => path.join(project_dir, dirent.name));
+  }
+
+  /**
+   * 译文受控下载：只交付当前工程输出目录内的文件，符号链接解析后仍须位于界内，
+   * 未加载工程或目录外路径一律拒绝，不暴露任意文件系统位置。
+   */
+  public open_download(requested_path: string): {
+    name: string;
+    size: number;
+    stream: ReturnType<NativeFs["create_read_stream"]>;
+  } {
+    const trimmed = requested_path.trim();
+    if (trimmed === "") {
+      throw new AppError("request.validation_failed", {
+        public_details: { reason: "translation_download_path_empty" },
+      });
+    }
+    const resolved = path.resolve(trimmed);
+    const controlled = this.resolve_real_path_or_null(resolved) ?? resolved;
+    const is_inside_output = this.read_output_directories().some((directory) =>
+      is_path_inside(directory, controlled),
+    );
+    if (!is_inside_output) {
+      throw new AppError("request.forbidden_origin", {
+        public_details: { reason: "translation_download_outside_output_directories" },
+      });
+    }
+    let size: number;
+    try {
+      const stats = this.native_fs.stat(controlled);
+      if (!stats.isFile()) throw new AppError("file.not_found");
+      size = stats.size;
+    } catch (cause) {
+      if (is_app_error(cause)) throw cause;
+      throw new AppError("file.not_found", { cause });
+    }
+    return {
+      name: path.basename(controlled),
+      size,
+      stream: this.native_fs.create_read_stream(controlled),
+    };
   }
 
   /**
@@ -259,13 +330,10 @@ export class TranslationFileGenerationService {
     project_path: string,
     app_language: AppLanguage,
   ): GeneratedFilePaths {
-    const text = create_text_resolver(resolve_app_locale(app_language));
-    const translated_suffix = text("app.translation_generation.directory.translated");
-    const bilingual_suffix = text("app.translation_generation.directory.bilingual");
-    const project_dir = path.dirname(project_path);
-    const stem = path.parse(project_path).name;
-    const translated_base = `${stem}_${translated_suffix}`;
-    const bilingual_base = `${stem}_${bilingual_suffix}`;
+    const { project_dir, translated_base, bilingual_base } = this.resolve_output_directory_names(
+      project_path,
+      app_language,
+    );
     const needs_timestamp =
       this.native_fs.exists(path.join(project_dir, translated_base)) ||
       this.native_fs.exists(path.join(project_dir, bilingual_base));
@@ -274,6 +342,50 @@ export class TranslationFileGenerationService {
       translated_path: path.join(project_dir, `${translated_base}${timestamp}`),
       bilingual_path: path.join(project_dir, `${bilingual_base}${timestamp}`),
     };
+  }
+
+  /** 输出目录名只由工程位置与应用语言决定，生成与受控下载边界共用同一计算。 */
+  private resolve_output_directory_names(
+    project_path: string,
+    app_language: AppLanguage,
+  ): { project_dir: string; translated_base: string; bilingual_base: string } {
+    const text = create_text_resolver(resolve_app_locale(app_language));
+    const translated_suffix = text("app.translation_generation.directory.translated");
+    const bilingual_suffix = text("app.translation_generation.directory.bilingual");
+    const project_dir = path.dirname(project_path);
+    const stem = path.parse(project_path).name;
+    return {
+      project_dir,
+      translated_base: `${stem}_${translated_suffix}`,
+      bilingual_base: `${stem}_${bilingual_suffix}`,
+    };
+  }
+
+  /** 本次生成的输出文件按输出目录实际落盘内容读取，译文与双语对照目录都纳入清单。 */
+  private read_generated_files(paths: GeneratedFilePaths): TranslationGeneratedFile[] {
+    const files: TranslationGeneratedFile[] = [];
+    for (const directory of [paths.translated_path, paths.bilingual_path]) {
+      // 输出目录可能没有内容（格式不产出双语或整份省略），缺失时按空清单处理。
+      if (!this.native_fs.exists(directory)) continue;
+      const names = this.native_fs
+        .read_dirents(directory)
+        .filter((dirent) => dirent.isFile())
+        .map((dirent) => dirent.name)
+        .sort((left, right) => left.localeCompare(right));
+      for (const name of names) {
+        const file_path = path.join(directory, name);
+        files.push({ name, path: file_path, size: this.native_fs.stat(file_path).size });
+      }
+    }
+    return files;
+  }
+
+  private resolve_real_path_or_null(candidate: string): string | null {
+    try {
+      return this.native_fs.real_path(candidate);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -327,4 +439,11 @@ export class TranslationFileGenerationService {
   private generation_log_text(config: SettingSnapshot, key: LocaleKey): string {
     return format_i18n_message(resolve_app_locale(config.app_language), key);
   }
+}
+
+/** 只把基础名或基础名加撞名时间戳的目录当作译文输出目录，避免任意同名目录进入下载边界。 */
+function is_generation_directory(name: string, base: string): boolean {
+  if (name === base) return true;
+  if (!name.startsWith(`${base}_`)) return false;
+  return GENERATION_DIRECTORY_TIMESTAMP_PATTERN.test(name.slice(base.length));
 }

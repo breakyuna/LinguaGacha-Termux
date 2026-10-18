@@ -1,9 +1,11 @@
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { type JSX, startTransition } from "react";
 
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import { useI18n } from "@frontend/app/locale/locale-context";
 import { useSidebar } from "@frontend/shadcn/sidebar-context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@frontend/shadcn/tooltip";
+import { useNarrowViewport } from "@frontend/app/shell/use-narrow-viewport";
 import { resolve_shortcut_platform } from "@frontend/widgets/interactions/keyboard-shortcuts";
 import { ShortcutTooltipRow } from "@frontend/widgets/interactions/shortcut-kbd";
 import { useActionShortcut } from "@frontend/widgets/interactions/use-action-shortcut";
@@ -17,10 +19,16 @@ type AppTitlebarProps = {
 export function AppTitlebar(props: AppTitlebarProps): JSX.Element {
   const { t } = useI18n();
   const { state, toggleSidebar } = useSidebar();
-  const version = window.desktopApp.appVersion;
+  const is_narrow_viewport = useNarrowViewport();
+  const version = read_host_bridge().appVersion;
   const version_label = /^v/iu.test(version) ? version : `v${version}`;
-  const shell_info = window.desktopApp.shell; // 标题栏安全区统一来自 preload 暴露的桌面壳层信息，避免渲染层再猜平台细节
-  const SidebarToggleIcon = state === "expanded" ? PanelLeftClose : PanelLeftOpen;
+  const shell_info = read_host_bridge().shell; // 标题栏安全区统一来自宿主壳层信息，避免渲染层再猜平台细节
+  // 抽屉形态没有折叠态图标语义，开关统一用菜单图标；并排侧栏沿用展开/折叠指示。
+  const SidebarToggleIcon = is_narrow_viewport
+    ? Menu
+    : state === "expanded"
+      ? PanelLeftClose
+      : PanelLeftOpen;
   const toggle_label = t(
     state === "expanded"
       ? "app.navigation_action.collapse_sidebar"

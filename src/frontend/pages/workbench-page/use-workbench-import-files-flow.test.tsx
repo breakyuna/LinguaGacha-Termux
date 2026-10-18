@@ -33,6 +33,11 @@ vi.mock("@frontend/app/feedback/desktop-toast", async (importOriginal) => ({
 
 const api_fetch_mock = vi.mocked(api_fetch);
 
+const release_materials_mock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@frontend/features/web-file-picker/web-file-picker-api", () => ({
+  release_web_file_materials: release_materials_mock,
+}));
+
 vi.mock("@frontend/app/desktop/desktop-api", async (importOriginal) => {
   return {
     ...(await importOriginal<typeof import("@frontend/app/desktop/desktop-api")>()),
@@ -514,6 +519,51 @@ describe("useWorkbenchImportFilesFlow", () => {
       }
     },
   );
+
+  it("上传暂存材料在导入成功后释放，导入失败保留供重试", async () => {
+    api_fetch_mock.mockResolvedValueOnce({
+      files_revision: 1,
+      files: [
+        {
+          source_path: "/data/web-imports/upload.txt",
+          target_rel_path: "upload.txt",
+          conflict: false,
+        },
+      ],
+    });
+    const snapshots = await mount_hook();
+    await act(async () => {
+      await latest_snapshot(snapshots).flow.request_add_files_from_paths(
+        ["/data/web-imports/upload.txt"],
+        ["mat-1"],
+      );
+    });
+    expect(release_materials_mock).not.toHaveBeenCalled();
+
+    const pending = Promise.withResolvers<ProjectWriteResultPayload>();
+    api_fetch_mock.mockReturnValueOnce(pending.promise);
+    let submission!: Promise<boolean>;
+    await act(async () => {
+      submission = latest_snapshot(snapshots).flow.confirm_dialog();
+    });
+    await act(async () => {
+      pending.resolve({ accepted: true, changes: [] });
+      await submission;
+    });
+
+    expect(release_materials_mock).toHaveBeenCalledWith(["mat-1"]);
+    expect(api_fetch_mock).toHaveBeenCalledWith(
+      "/api/workbench/files/import",
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            source_path: "/data/web-imports/upload.txt",
+            target_rel_path: "upload.txt",
+          }),
+        ],
+      }),
+    );
+  });
 
   async function mount_hook(
     options: {

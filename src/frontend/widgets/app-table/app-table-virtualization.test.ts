@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  APP_TABLE_FLEX_COLUMN_MIN_WIDTH,
   build_app_table_placeholder_fill,
   build_app_table_spacer_heights,
+  resolve_app_table_min_width,
 } from "@frontend/widgets/app-table/app-table-virtualization";
 
 describe("app-table-virtualization", () => {
@@ -29,5 +31,18 @@ describe("app-table-virtualization", () => {
       placeholder_row_heights: [row_height],
       residual_spacer_height: 18,
     });
+  });
+
+  it("表格最小宽度由声明列宽和弹性列下限相加", () => {
+    expect(
+      resolve_app_table_min_width([
+        { width: 64 },
+        {},
+        { width: 96 },
+        { width: 120 },
+        {},
+      ]),
+    ).toBe(64 + 96 + 120 + 2 * APP_TABLE_FLEX_COLUMN_MIN_WIDTH);
+    expect(resolve_app_table_min_width([])).toBe(0);
   });
 });

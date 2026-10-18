@@ -1,5 +1,6 @@
 import { ThemeProvider, useTheme } from "next-themes";
 import { type JSX, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
 import type { ResolvedThemeMode } from "@gui/bridge-types";
 import {
   type ThemePreference,
@@ -89,7 +90,7 @@ function AppearanceStateProvider({ children }: { children: ReactNode }): JSX.Ele
 
   useEffect(() => {
     // 宿主只消费最终明暗状态，不承担 system 偏好的解析和持久化。
-    window.desktopApp.setTitleBarTheme(resolved_theme);
+    read_host_bridge().setTitleBarTheme(resolved_theme);
   }, [resolved_theme]);
 
   const value: AppearanceContextValue = {

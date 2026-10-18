@@ -37,6 +37,9 @@ export type DesktopShellInfo = {
 export type DesktopPathPickResult = {
   canceled: boolean; // 用户取消或没有可用路径时为 true
   paths: string[]; // 经 main 原生对话框确认后返回给 renderer 的路径快照
+  // Web 选择器交付的附加身份，桌面 preload 不设置：暂存材料身份与受控下载标记
+  material_ids?: string[];
+  web_download?: boolean;
 };
 
 export type DesktopPathPickIntent =

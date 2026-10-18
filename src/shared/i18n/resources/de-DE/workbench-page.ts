@@ -18,10 +18,14 @@ export const de_de_workbench_page = {
     no_valid_file: "Keine gültigen Dateien können hinzugefügt werden",
     close_project_failed:
       "Fehler beim Schließen des Projekts. Bitte versuchen Sie es später erneut …",
+    copy_loading: "Projektkopie wird erstellt …",
+    copy_download_started: "Download der Projektkopie gestartet …",
+    copy_saved: "Projektkopie gespeichert unter {PATH}",
   },
   action: {
     add_file: "Hinzufügen",
     close_project: "Schließen",
+    copy_project: "Projektkopie herunterladen",
     reset: "Übersetzung zurücksetzen",
     translation_task: "Übersetzung",
     start_translation: "Übersetzung starten",

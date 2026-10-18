@@ -9,6 +9,7 @@ import {
   format_source_file_parse_failure_error_toast,
   format_source_file_parse_failure_toast,
 } from "@frontend/app/feedback/source-file-parse-failure-feedback";
+import { release_web_file_materials } from "@frontend/features/web-file-picker/web-file-picker-api";
 import {
   create_workbench_import_files_plan,
   type WorkbenchFileConflictAction,
@@ -24,9 +25,23 @@ type PendingImportFilesRequest = {
   preview: WorkbenchImportFilesPreview; // 后端拥有目标名称、冲突分类和修订。
   conflict_action: WorkbenchFileConflictAction;
   source_paths: string[];
+  material_ids: string[]; // 上传暂存材料身份，导入成功后释放
 };
 
 type WorkbenchImportFlowToastKind = "info" | "success" | "warning";
+
+/**
+ * 导入成功后释放暂存材料。
+ * 释放失败只留下后端保留时长清理，导入结果已经提交，不再叠加失败反馈。
+ */
+async function release_import_materials(material_ids: readonly string[]): Promise<void> {
+  if (material_ids.length === 0) return;
+  try {
+    await release_web_file_materials(material_ids);
+  } catch {
+    // 材料仍由后端按保留时长清理，不影响已提交的导入结果。
+  }
+}
 
 type WorkbenchImportFilesFlowOptions = {
   readonly: boolean;
@@ -50,7 +65,7 @@ type WorkbenchImportFilesFlowOptions = {
 };
 
 export type WorkbenchImportFilesFlow = {
-  request_add_files_from_paths: (source_paths: string[]) => Promise<void>;
+  request_add_files_from_paths: (source_paths: string[], material_ids?: string[]) => Promise<void>;
   request_add_file_from_path: (source_path: string) => Promise<void>;
   confirm_dialog: () => Promise<boolean>;
   secondary_dialog: () => Promise<boolean>;
@@ -144,7 +159,7 @@ export function useWorkbenchImportFilesFlow(
    * 发现用户选择的源路径，按冲突情况进入策略确认或继承确认。
    */
   const request_add_files_from_paths = useCallback(
-    async (source_paths: string[]): Promise<void> => {
+    async (source_paths: string[], material_ids: string[] = []): Promise<void> => {
       if (options.readonly) {
         return;
       }
@@ -197,6 +212,7 @@ export function useWorkbenchImportFilesFlow(
         preview: import_preview,
         conflict_action: "skip",
         source_paths: normalized_source_paths,
+        material_ids: [...new Set(material_ids)],
       };
       const conflicts = import_preview.files.filter((file) => file.conflict);
       if (conflicts.length > 0) {
@@ -245,7 +261,10 @@ export function useWorkbenchImportFilesFlow(
       } catch (error) {
         if (!(error instanceof DesktopApiError) || error.code !== "data.revision_conflict")
           throw error;
-        await request_add_files_from_paths(pending_request.source_paths);
+        await request_add_files_from_paths(
+          pending_request.source_paths,
+          pending_request.material_ids,
+        );
         return;
       }
       const failure_toast = format_source_file_parse_failure_toast(import_payload.failed_files);
@@ -254,6 +273,8 @@ export function useWorkbenchImportFilesFlow(
       }
       set_pending_import_files_request(null);
       options.set_dialog_state(close_dialog_state());
+      // 暂存路径已由导入命令消费，成功后释放；导入失败保留材料供重试。
+      await release_import_materials(pending_request.material_ids);
     },
     [options, request_add_files_from_paths],
   );
@@ -285,7 +306,7 @@ export function useWorkbenchImportFilesFlow(
           (options.get_planning_state().section_revisions.files ?? 0) !==
           pending.preview.files_revision
         ) {
-          await request_add_files_from_paths(pending.source_paths);
+          await request_add_files_from_paths(pending.source_paths, pending.material_ids);
         } else if (kind === "confirm-import-files") {
           open_import_inheritance_dialog(pending, primary ? "replace" : "skip");
         } else {

@@ -231,7 +231,7 @@ export function ProofreadingFilterDialog(props: ProofreadingFilterDialogProps): 
       size="lg"
       dismissBehavior={submitting ? "blocked" : "default"}
       onClose={props.on_close}
-      contentClassName="h-[720px] max-h-[calc(100vh-32px)] sm:max-w-[960px]"
+      contentClassName="h-[720px] max-h-[calc(100dvh-32px)] sm:max-w-[960px]"
       bodyClassName="overflow-hidden p-0"
       footer={
         <>

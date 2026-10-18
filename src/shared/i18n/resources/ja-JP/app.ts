@@ -99,6 +99,33 @@ export const ja_jp_app = {
   close_confirm: {
     description: "アプリを終了しますか …?",
   },
+  web_files: {
+    title_file: "ファイルを選択",
+    title_directory: "フォルダーを選択",
+    title_save: "保存先を選択",
+    roots: "場所",
+    up: "上一階層",
+    empty: "このフォルダーは空です",
+    loading: "フォルダーを読み込み中 …",
+    failed: "フォルダーの読み込みに失敗しました …",
+    upload: "ファイルをアップロード",
+    upload_hint: "この端末からバックエンドの一時領域へアップロードしてから取り込みます",
+    upload_directory: "フォルダーをアップロード",
+    upload_directory_hint: "フォルダー内の相対構造を保ったままアップロードし、ゲームや素材ディレクトリをそのまま取り込みます",
+    uploading: "アップロード中 …",
+    upload_failed: "アップロードに失敗しました …",
+    file_name: "ファイル名",
+    selected_empty: "まだ選択されていません",
+    confirm: "選択",
+  },
+  web_access: {
+    title: "アクセスキー",
+    description: "サービス起動時にターミナルへ表示されたアクセスキーを入力してください …",
+    placeholder: "アクセスキー",
+    submit: "入る",
+    failed: "アクセスキーが無効か、有効期限が切れています …",
+    capability_unavailable: "この操作は現在の Web 実行環境では利用できません …",
+  },
   quality_rule_import: {
     duplicate_description: "重複するルールが {COUNT} 件あります。処理方法を選択してください …",
   },
@@ -206,6 +233,10 @@ export const ja_jp_app = {
     directory: {
       translated: "訳文",
       bilingual: "訳文_対訳",
+    },
+    download: {
+      title: "訳文をダウンロード",
+      file_action: "{NAME} をダウンロード",
     },
     log: {
       started: "訳文を生成中 …",

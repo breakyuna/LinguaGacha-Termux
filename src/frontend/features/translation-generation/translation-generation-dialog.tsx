@@ -5,6 +5,7 @@ import type {
   TranslationGenerationFlow,
   TranslationGenerationState,
 } from "@frontend/features/translation-generation/use-translation-generation-flow";
+import { api_file_url } from "@frontend/app/desktop/desktop-api";
 import { AppActionDialog, AppConfirmDialog } from "@frontend/widgets/app-alert-dialog";
 
 type TranslationGenerationDialogProps = Pick<
@@ -62,6 +63,36 @@ export function TranslationGenerationDialog(
         secondaryAction={{
           label: t("app.translation_generation.confirmation.retry_check"),
           onSelect: props.retry_check,
+        }}
+        onClose={props.close}
+      />
+    );
+  }
+
+  if (visible_state.phase === "generated") {
+    return (
+      <AppActionDialog
+        open
+        title={t("app.translation_generation.download.title")}
+        description={
+          <ul className="grid gap-1.5">
+            {visible_state.files.map((file) => (
+              <li key={file.path}>
+                <a
+                  href={api_file_url(
+                    `/api/translation/files/download?path=${encodeURIComponent(file.path)}`,
+                  )}
+                  download=""
+                >
+                  {t("app.translation_generation.download.file_action", { NAME: file.name })}
+                </a>
+              </li>
+            ))}
+          </ul>
+        }
+        primaryAction={{
+          label: t("app.action.close"),
+          onSelect: props.close,
         }}
         onClose={props.close}
       />

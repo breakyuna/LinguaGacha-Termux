@@ -83,4 +83,32 @@ describe("批量翻译展示", () => {
         .speed_text,
     ).toBeNull();
   });
+
+  it("中断快照显示中断状态文本且不展示速度", () => {
+    const metrics = resolve_translation_task_metrics({
+      snapshot: {
+        ...create_empty_batch_translation_snapshot(),
+        status: "interrupted",
+        progress: {
+          ...create_empty_batch_translation_snapshot().progress,
+          line: 2,
+          total_line: 5,
+          total_output_tokens: 40,
+        },
+      },
+      now_seconds: 100000,
+    });
+    const summary = build_translation_task_summary_display(metrics, t);
+    expect(summary.status_text).toBe("batch_translation.summary.interrupted");
+    expect(summary.speed_text).toBeNull();
+    expect(summary.tone).toBe("warning");
+    const detail = build_translation_task_detail_display({
+      metrics,
+      completion_percent: 40,
+      waveform_history: [],
+      t,
+    });
+    expect(detail.percent_tone).toBe("warning");
+    expect(detail.stop_disabled).toBe(true);
+  });
 });
