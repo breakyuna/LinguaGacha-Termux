@@ -5,6 +5,7 @@ import { useI18n, type LocaleKey } from "@frontend/app/locale/locale-context";
 import { Spinner } from "@frontend/shadcn/spinner";
 import { Input } from "@frontend/shadcn/input";
 import { AppButton } from "@frontend/widgets/app-button";
+import "@frontend/features/web-file-picker/web-file-picker-dialog.css";
 import { AppPageDialog } from "@frontend/widgets/app-page-dialog";
 import {
   join_web_path,
@@ -362,10 +363,22 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
       bodyClassName="gap-3"
       footer={
         <>
-          <AppButton type="button" variant="outline" size="sm" onClick={handle_cancel}>
+          <AppButton
+            type="button"
+            variant="outline"
+            size="sm"
+            className="web-file-picker__footer-button"
+            onClick={handle_cancel}
+          >
             {t("app.action.cancel")}
           </AppButton>
-          <AppButton type="button" size="sm" disabled={!can_confirm} onClick={handle_confirm}>
+          <AppButton
+            type="button"
+            size="sm"
+            className="web-file-picker__footer-button"
+            disabled={!can_confirm}
+            onClick={handle_confirm}
+          >
             {t("app.web_files.confirm")}
           </AppButton>
         </>
@@ -378,6 +391,7 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
             type="button"
             variant={root.id === active_root_id ? "default" : "outline"}
             size="xs"
+            className="web-file-picker__compact-button"
             onClick={() => {
               handle_select_root(root);
             }}
@@ -392,6 +406,7 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
           type="button"
           variant="outline"
           size="xs"
+          className="web-file-picker__compact-button"
           disabled={!can_go_up}
           onClick={handle_go_up}
         >
@@ -415,11 +430,14 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
         ) : (
           <ul className="divide-y divide-border/60">
             {entries.map((entry) => (
-              <li key={entry.name} className="flex items-center gap-2 px-3 py-2">
+              <li
+                key={entry.name}
+                className="web-file-picker__row flex items-center gap-2 px-3 py-2"
+              >
                 {entry.kind === "directory" ? (
                   <button
                     type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    className="web-file-picker__row-target flex min-w-0 flex-1 items-center gap-2 text-left"
                     onClick={() => {
                       handle_enter_directory(entry.name);
                     }}
@@ -428,7 +446,7 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
                     <span className="truncate">{entry.name}</span>
                   </button>
                 ) : is_file_mode ? (
-                  <label className="flex min-w-0 flex-1 items-center gap-2">
+                  <label className="web-file-picker__row-target flex min-w-0 flex-1 items-center gap-2">
                     <input
                       type="checkbox"
                       className="size-4 shrink-0"
@@ -478,6 +496,7 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
               type="button"
               variant="outline"
               size="xs"
+              className="web-file-picker__compact-button"
               disabled={is_uploading}
               onClick={() => {
                 file_input_ref.current?.click();
@@ -494,6 +513,7 @@ export function WebFilePickerDialog(props: WebFilePickerDialogProps): JSX.Elemen
               type="button"
               variant="outline"
               size="xs"
+              className="web-file-picker__compact-button"
               disabled={is_uploading}
               onClick={() => {
                 directory_input_ref.current?.click();

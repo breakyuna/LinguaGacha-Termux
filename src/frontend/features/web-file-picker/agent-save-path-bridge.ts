@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { AGENT_SAVE_PATH_EVENT_TOPIC } from "@shared/agent";
-import { api_fetch, api_get, open_event_stream } from "@frontend/app/desktop/desktop-api";
+import { api_fetch, open_event_stream } from "@frontend/app/desktop/desktop-api";
 import { request_web_file_pick } from "./picker-request-bus";
 
 /** 迟连接时领取的驻留请求形状，与后端 pending 列表一致。 */
@@ -61,7 +61,8 @@ export function useAgentSavePathRequests(): void {
     /** 迟连接领取：先读驻留列表，再挂增量监听，避免恢复窗口丢请求。 */
     void (async (): Promise<void> => {
       try {
-        const payload = await api_get<{ requests?: unknown }>("/api/agent/save-path/pending");
+        // 领取与应答同属 POST 契约：GET 会被路由判为不存在，迟连接请求永远领不到。
+        const payload = await api_fetch<{ requests?: unknown }>("/api/agent/save-path/pending", {});
         const requests = Array.isArray(payload.requests) ? payload.requests : [];
         for (const request of requests) {
           const parsed = read_save_path_event({ type: "requested", ...(request as object) });

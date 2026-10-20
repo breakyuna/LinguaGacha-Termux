@@ -422,6 +422,14 @@ export class WebFileService {
         public_details: { reason: "web_path_outside_root", root_id: root.id },
       });
     }
+    // 符号链接不得把浏览边界让出根外：词法在界内但解析结果逃逸时同样拒绝；
+    // 解析失败（目标不存在）按词法放行，由存在性检查给出 not_found。
+    const real_candidate = this.resolve_real_path_or_null(candidate);
+    if (real_candidate !== null && !is_path_inside(root_path, real_candidate)) {
+      throw new AppError("request.validation_failed", {
+        public_details: { reason: "web_path_outside_root", root_id: root.id },
+      });
+    }
     if (!this.is_existing_directory(candidate)) {
       throw new AppError("file.not_found", { public_details: { reason: "web_directory_missing" } });
     }
@@ -469,11 +477,17 @@ export class WebFileService {
     ];
     const resolved = path.resolve(trimmed);
     const real_path = this.resolve_real_path_or_null(resolved);
-    const is_inside_boundary = boundaries.some(
+    // 符号链接有两个逃逸方向：词法在界内但解析后跳出（界内链接指向界外），
+    // 以及词法在界外但解析后落入界内（经指向界内的链接访问）。前者必须拒绝，
+    // 后者保持放行（经符号链接进入边界不扩大可读范围）；解析失败按词法判断，
+    // 由后续 stat 给出 file.not_found。
+    const escapes_boundary = boundaries.some(
       (boundary) =>
-        is_path_inside(boundary, resolved) ||
-        (real_path !== null && is_path_inside(boundary, real_path)),
+        is_path_inside(boundary, resolved) && !is_path_inside(boundary, real_path ?? resolved),
     );
+    const is_inside_boundary =
+      !escapes_boundary &&
+      boundaries.some((boundary) => is_path_inside(boundary, real_path ?? resolved));
     if (!is_inside_boundary) {
       throw new AppError("request.forbidden_origin", {
         public_details: { reason: "web_download_outside_allowed_roots" },

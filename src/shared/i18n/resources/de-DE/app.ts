@@ -129,6 +129,10 @@ export const de_de_app = {
     failed: "Der Zugriffsschlüssel ist ungültig oder abgelaufen …",
     capability_unavailable: "Diese Aktion wird in der aktuellen Web-Laufzeit nicht unterstützt …",
   },
+  web_instance: {
+    conflict:
+      "Auf demselben Datenstamm läuft bereits eine weitere Instanz (PID {PID}, Port {PORT}). Dieser Start kann fortgesetzt werden; Schreibvorgänge über Instanzen hinweg werden mit einem Revisionskonflikt abgelehnt …",
+  },
   quality_rule_import: {
     duplicate_description:
       "{COUNT} doppelte Regeln wurden erkannt. Wählen Sie, wie damit umgegangen werden soll …",

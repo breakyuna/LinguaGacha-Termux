@@ -13,6 +13,7 @@ import { register_api_routes } from "./api-routes";
 import { AppPathService } from "../app/app-path-service";
 import type { WebFileService } from "../file/web-file-service";
 import { WebFileService as RealWebFileService } from "../file/web-file-service";
+import type { TranslationGeneratedFile } from "../../shared/translation-generation";
 import { AppError } from "../../shared/error";
 
 // 公开 HTTP 路径是客户端契约，独立清单用于发现误删、改名与重复注册。
@@ -120,6 +121,7 @@ const POST_PATHS = new Set([
   "/api/quality/prompts/presets/rename",
   "/api/quality/prompts/presets/delete",
   "/api/translation/files/generate",
+  "/api/translation/files/outputs",
   "/api/settings/app",
   "/api/settings/update",
   "/api/settings/recent-projects/add",
@@ -570,6 +572,22 @@ describe("register_api_routes", () => {
     expect(fixture.open_download).not.toHaveBeenCalled();
   });
 
+  it("译文输出清单路由转交生成服务并返回各语言输出目录文件", async () => {
+    const fixture = create_route_fixture();
+    const files = [
+      { name: "script.txt", path: "/data/demo_译文/script.txt", size: 5 },
+      { name: "script.txt", path: "/data/demo_Translated/script.txt", size: 5 },
+    ];
+    fixture.read_output_files.mockReturnValue(files);
+
+    const response = await read_post_handler(
+      fixture.post_json,
+      "/api/translation/files/outputs",
+    )({});
+    expect(response).toEqual({ files });
+    expect(fixture.read_output_files).toHaveBeenCalledOnce();
+  });
+
   it("工程副本路由转交副本服务并返回副本身份", async () => {
     const fixture = create_route_fixture();
     const copy = { path: "/data/project-copies/demo_副本_1.lg", name: "demo_副本_1.lg", size: 24 };
@@ -614,6 +632,7 @@ function create_route_fixture(options: { webFiles?: WebFileService | null } = {}
   const export_prompt = vi.fn();
   const generate_files = vi.fn();
   const open_download = vi.fn();
+  const read_output_files = vi.fn<() => TranslationGeneratedFile[]>();
   const agent = {
     get_snapshot: vi.fn(() => ({
       revision: 0,
@@ -651,7 +670,10 @@ function create_route_fixture(options: { webFiles?: WebFileService | null } = {}
       rules: { import_rules, export_rules },
       prompts: { read_import_text, export: export_prompt },
     },
-    files: { preview: {}, translationGeneration: { generate_files, open_download } },
+    files: {
+      preview: {},
+      translationGeneration: { generate_files, open_download, read_output_files },
+    },
     model: {
       get_selection_snapshot: vi.fn(() => ({
         model_selection: { translation: "a", agent: "c" },
@@ -708,6 +730,7 @@ function create_route_fixture(options: { webFiles?: WebFileService | null } = {}
     import_files,
     import_rules,
     open_download,
+    read_output_files,
     preview_import_files,
     reset,
     input_command,

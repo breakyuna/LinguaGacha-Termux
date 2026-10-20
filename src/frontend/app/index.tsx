@@ -47,6 +47,7 @@ import type { AgentInputRequest, RouteId } from "@frontend/app/navigation/types"
 import { LocaleProvider } from "@frontend/app/locale/locale-provider";
 import { useI18n } from "@frontend/app/locale/locale-context";
 import { WebFilePickerHost } from "@frontend/features/web-file-picker/web-file-picker-host";
+import { WebInstanceConflictToast } from "@frontend/app/host/web-instance-conflict-toast";
 import { SidebarInset, SidebarProvider } from "@frontend/shadcn/sidebar";
 import { Toaster } from "@frontend/shadcn/sonner";
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
@@ -76,7 +77,7 @@ import {
 // SIDEBAR STORAGE KEY 是持久化或快捷键契约，集中保存避免调用点散落魔术字符串。
 const SIDEBAR_STORAGE_KEY = "lg-sidebar-collapsed";
 const LOG_WINDOW_APP_LANGUAGE_STORAGE_KEY = "lg-log-window-app-language"; // 日志窗口不启动主运行态，首屏语言用独立缓存兜底
-const GITHUB_REPOSITORY_URL = "https://github.com/neavo/LinguaGacha";
+const GITHUB_REPOSITORY_URL = "https://github.com/breakyuna/LinguaGacha-Termux";
 
 /** 导航只开放注册表中实际存在的页面。 */
 function has_registered_screen(route_id: RouteId): boolean {
@@ -649,6 +650,8 @@ function AppContent(): JSX.Element {
         }}
       />
 
+      {/* 同数据根第二个实例只提示不阻塞，桌面入口没有该注入。 */}
+      <WebInstanceConflictToast />
       {/* 浏览器没有系统文件对话框，宿主桥的路径选择统一由应用内选择器承接。 */}
       <WebFilePickerHost />
     </>

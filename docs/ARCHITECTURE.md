@@ -24,23 +24,29 @@ GUI 将完整后端放入独立 `worker_thread`，使业务执行与 Electron �
 - renderer 通过本机 HTTP / SSE 消费后端。
 - main 与后端通过线程消息处理启动、关闭和宿主回调。
 - CLI 在当前进程中创建共享后端，按单次任务释放服务。
+- Web 入口（Termux Node）在服务进程内自持组合根，不经桌面 Backend Runtime worker。
 
 ```mermaid
 flowchart LR
     Entry(["产品入口"]) --> Main("Electron main")
     Entry --> CLI("CLI")
+    Entry --> Web("Termux Node Web 服务")
     Main --> Runtime("Backend Runtime worker")
     Main --> Renderer("preload / renderer")
     Renderer -->|"HTTP / SSE"| Runtime
+    Web -->|"同源 HTTP / SSE"| Browser("Android 浏览器")
     Runtime --> Services("共享后端业务能力")
     CLI --> Services
+    Web --> Services
     Runtime --> Agent("产品 Agent")
-    Agent --> Services
+    Web --> Agent
     Agent --> Workspace("Node 工作区子进程")
     Services --> Workers("计算与翻译线程")
 ```
 
 GUI 与 CLI 在各自环境中实例化共享后端，让翻译、工程写入和导出沿用同一套业务语义。GUI 的 `GuiBackendBootstrap` 额外装配 Agent 与 Gateway。
+
+Web 入口是第三个产品入口：`src/web/` 解析启动参数与路径注入，由同一个 `GuiBackendBootstrap` 装配完整后端，重型计算走 work-unit / planning / rpgmaker-mv-mz-prepare / compute 四个 worker 池（产物入口为 `.mjs`）。传输由 Gateway 的 Web 选项提供：同源静态资源、一次性启动凭据换 HttpOnly 会话 Cookie、Host / Origin 校验与 API 会话门禁。服务生命周期归终端信号，页面关闭不等于服务停止；同数据根第二个实例只提示不互斥（实例标记 + bootstrap 事实 + 界面通知）。图片与 PDF 宿主按可执行文件解析结果注入 Chromium，缺失时能力按缺失报告。
 
 资源路径由入口显式注入：安装根、只读内置资源根和工作区运行目录随应用版本确定。这样，工作目录变化不会改变线程或子进程使用的资源。
 

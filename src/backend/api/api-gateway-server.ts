@@ -20,7 +20,11 @@ import type { AgentImageHost } from "../../shared/agent-image";
 import type { WebFileService } from "../file/web-file-service";
 import type { WebAgentSavePathHost } from "./web-agent-save-path-host";
 import { JsonTool } from "../../shared/utils/json-tool";
-import { BACKEND_API_HOST, build_backend_api_base_url } from "../../shared/backend-api";
+import {
+  BACKEND_API_HOST,
+  build_backend_api_base_url,
+  type WebInstanceMarker,
+} from "../../shared/backend-api";
 import {
   AppError,
   normalize_renderer_error_report,
@@ -48,6 +52,17 @@ const WEB_BOOTSTRAP_PATH = "/api/web/bootstrap"; // 启动配置只含版本、�
 const WEB_TITLE_BAR_HEIGHT = 40; // 与桌面 DESKTOP_TITLE_BAR_HEIGHT 契约一致；Web 无原生 overlay，壳层标题栏仍按该高度渲染
 
 /**
+ * 把启动配置包进入口文档的内联脚本标签。
+ * 标准 JSON 不转义 `<`，而配置中的字符串可来自数据根内可写文件（如实例标记的
+ * `started_at`），不转义即可构造 `</script>` 突破标签注入脚本；转义为 `\u003c`
+ * 保持 JSON / JS 字符串语义不变，同时关闭这条注入面。
+ */
+export function build_web_bootstrap_script_tag(bootstrap_json: string): string {
+  const safe_json = bootstrap_json.replaceAll("<", "\\u003c");
+  return `<script>window.__LG_WEB_BOOTSTRAP__=${safe_json};</script>`;
+}
+
+/**
  * 同源 Web 传输配置。桌面入口不设置该选项，保留回环随机端口与 file:// renderer 所需 CORS。
  */
 export interface WebGatewayOptions {
@@ -59,6 +74,11 @@ export interface WebGatewayOptions {
   sessionTtlMs?: number;
   pdfHost?: PDFHost; // PDF 宿主按需注入；缺失时能力信息如实报告不可用
   imageHost?: AgentImageHost; // 图片宿主按需注入；缺失时能力信息如实报告不可用
+  /**
+   * 同数据根第二个实例的提示事实。入口在监听就绪后才能拿到真实端口，
+   * 因此以读取函数注入，桌面入口不设置。
+   */
+  readAnotherInstance?: () => WebInstanceMarker | null;
 }
 
 /**
@@ -346,7 +366,7 @@ export class ApiGatewayServer {
   /** 入口文档内联启动配置，避免首屏前多一次往返，也让访问凭据只存在于 URL 片段。 */
   private build_web_bootstrap_script(): string {
     const bootstrap_json = JsonTool.stringifyStrict(this.read_web_bootstrap(null));
-    return `<script>window.__LG_WEB_BOOTSTRAP__=${bootstrap_json};</script>`;
+    return build_web_bootstrap_script_tag(bootstrap_json);
   }
 
   /** Web 传输启用时按请求携带的 Cookie 报告会话是否已建立。 */
@@ -403,6 +423,8 @@ export class ApiGatewayServer {
         // 会话 Cookie 为 HttpOnly，renderer 无法自行判断，由本接口按请求携带的 Cookie 报告。
         established: this.is_web_session_established(cookie_header),
       },
+      // 同数据根第二个实例只在 Web 传输报告；单实例与桌面入口都为 null。
+      anotherInstance: this.web_options?.readAnotherInstance?.() ?? null,
       web: {
         sessionRequired: this.access_session !== null,
         staticRoot: this.static_root !== null,

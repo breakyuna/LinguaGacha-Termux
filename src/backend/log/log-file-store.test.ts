@@ -7,6 +7,8 @@ import { LogFileStore } from "./log-file-store";
 import type { LogFileRecord } from "../../shared/log";
 
 const DATE = "20260913";
+/** 外部编辑后显式推后 mtime 的秒数，保证跨过文件系统的时间戳刻度。 */
+const EDIT_STAMP_ADVANCE_SECONDS = 60;
 /** 生成最小正文，测试只覆盖目标场景所需字段。 */
 function record(text: string, window = true): LogFileRecord {
   return {
@@ -16,6 +18,18 @@ function record(text: string, window = true): LogFileRecord {
     content: text,
     ...(window ? {} : { window: false as const }),
   };
+}
+
+/**
+ * 外部等字节编辑正文，并显式推后 mtime。
+ * `LogFileStore` 用 `dev`/`ino`/`size`/`mtime`/`ctime` 组成文件状态识别正文变化，
+ * 而 Android 等文件系统时间戳粒度较粗，连续快速写入会落在同一刻度使编辑不可见；
+ * 测试因此显式推进时间戳，稳定表达"等字节编辑可被观察"这一前提。
+ */
+function edit_in_place(file: string, from: string, to: string): void {
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(from, to));
+  const later = fs.statSync(file).mtimeMs / 1000 + EDIT_STAMP_ADVANCE_SECONDS;
+  fs.utimesSync(file, later, later);
 }
 
 describe("LogFileStore", () => {
@@ -75,13 +89,13 @@ describe("LogFileStore", () => {
     store.append(DATE, record("alpha"));
     const before = await store.read_page({ date: DATE, direction: "latest" });
     const bytes = fs.statSync(body).size;
-    fs.writeFileSync(body, fs.readFileSync(body, "utf8").replace("alpha", "bravo"));
+    edit_in_place(body, "alpha", "bravo");
     const after = await store.read_page({ date: DATE, direction: "latest" });
     expect(fs.statSync(body).size).toBe(bytes);
     expect(after.entries[0]?.message_preview).toBe("bravo");
     expect(after.after?.revision).not.toBe(before.after?.revision);
     await store.close();
-    fs.writeFileSync(body, fs.readFileSync(body, "utf8").replace("bravo", "delta"));
+    edit_in_place(body, "bravo", "delta");
     const reopened = new LogFileStore(dir.path, new NativeFs());
     const page = await reopened.read_page({ date: DATE, direction: "latest" });
     expect(page.entries[0]?.message_preview).toBe("delta");
@@ -133,7 +147,7 @@ describe("LogFileStore", () => {
       const bytes = await read(file, start, length);
       if (file === body && !edited) {
         edited = true;
-        fs.writeFileSync(body, fs.readFileSync(body, "utf8").replace("alpha", "bravo"));
+        edit_in_place(body, "alpha", "bravo");
       }
       return bytes;
     });

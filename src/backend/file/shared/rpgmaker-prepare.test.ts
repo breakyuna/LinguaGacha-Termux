@@ -161,7 +161,8 @@ it.each(["case", "directory", "reserved"])("提交前拒绝路径冲突 %s 并�
     }),
   ).rejects.toThrow();
   expect(fs.readFileSync(path.join(temp.path, "Data/keep.txt"), "utf8")).toBe("original");
-  expect(fs.readdirSync(temp.path)).toEqual(["backup_lg", "Data"]);
+  // 目录枚举顺序取决于文件系统，排序后比较剩余项。
+  expect(fs.readdirSync(temp.path).sort()).toEqual(["Data", "backup_lg"]);
 });
 
 it.each([{ names: ["Keep.txt", "keep.txt"] }, { names: ["keep.txt", "Keep.txt"] }])(

@@ -110,7 +110,8 @@ export const en_us_app = {
     upload: "Upload a file",
     upload_hint: "Upload from this device into the backend staging area, then import it",
     upload_directory: "Upload a folder",
-    upload_directory_hint: "Uploads keep the folder structure so games and asset folders import directly",
+    upload_directory_hint:
+      "Uploads keep the folder structure so games and asset folders import directly",
     uploading: "Uploading …",
     upload_failed: "Upload failed …",
     file_name: "File name",
@@ -124,6 +125,10 @@ export const en_us_app = {
     submit: "Continue",
     failed: "The access credential is invalid or has expired …",
     capability_unavailable: "This action is not available in the current web runtime …",
+  },
+  web_instance: {
+    conflict:
+      "Another instance is already running on the same data root (PID {PID}, port {PORT}). This instance can keep running; writes across instances are rejected with a revision conflict …",
   },
   quality_rule_import: {
     duplicate_description: "{COUNT} duplicate rules were detected. Choose how to handle them …",

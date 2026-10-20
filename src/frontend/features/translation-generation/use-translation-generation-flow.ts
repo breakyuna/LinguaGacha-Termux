@@ -43,6 +43,31 @@ type ProofreadingWarningSummaryResponse = {
   warningSummary: ProofreadingWarningSummary;
 };
 
+/**
+ * 下载清单以工程已有各语言输出目录为基准，合并本次生成结果；
+ * 列举失败时保留本次生成结果，不阻断生成成功后的下载入口。
+ */
+async function merge_download_files(
+  generated_files: TranslationGeneratedFile[],
+): Promise<TranslationGeneratedFile[]> {
+  let output_files: TranslationGeneratedFile[];
+  try {
+    const response = await api_fetch<{ files: TranslationGeneratedFile[] }>(
+      "/api/translation/files/outputs",
+      {},
+    );
+    output_files = response.files ?? [];
+  } catch {
+    return generated_files;
+  }
+  const merged = new Map(output_files.map((file) => [file.path, file]));
+  for (const file of generated_files) {
+    // 本次生成结果与输出目录清单按路径去重，边界外的生成文件也保留下载入口。
+    if (!merged.has(file.path)) merged.set(file.path, file);
+  }
+  return [...merged.values()];
+}
+
 export type TranslationGenerationFlow = {
   state: TranslationGenerationState;
   can_request_generation: boolean;
@@ -140,7 +165,9 @@ export function useTranslationGenerationFlow(): TranslationGenerationFlow {
         {},
       );
       if (generation !== request_generation_ref.current) return;
-      const generated_files = generation_result.files ?? [];
+      // 下载清单同时列出本次生成结果与工程已有各语言输出目录，旧语言译文同样可见可下载。
+      const generated_files = await merge_download_files(generation_result.files ?? []);
+      if (generation !== request_generation_ref.current) return;
       // 没有输出文件时保持原有关闭行为，不额外展示下载区域。
       if (generated_files.length === 0) {
         apply_state({ phase: "closed" });

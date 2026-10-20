@@ -10,6 +10,8 @@ import { AGENT_SAVE_PATH_EVENT_TOPIC } from "@shared/agent";
 
 let active_event_source: FakeEventSource | null = null;
 const save_path_responses: Record<string, unknown>[] = [];
+/** 记录 pending 领取的请求方法：后端路由只接受 POST，方法错配会让迟连接领取静默失败。 */
+const pending_claim_methods: string[] = [];
 
 vi.mock("@frontend/app/locale/locale-context", () => ({
   useI18n: () => ({ t: (key: string) => key }),
@@ -64,6 +66,7 @@ function install_backend(): void {
       return { ok: true, status: 200, json: async () => ({ ok: true, data: { roots: ROOTS } }) };
     }
     if (url.includes("/api/agent/save-path/pending")) {
+      pending_claim_methods.push(String(init?.method ?? "GET"));
       return { ok: true, status: 200, json: async () => ({ ok: true, data: { requests: [] } }) };
     }
     if (url.includes("/api/agent/save-path/respond")) {
@@ -181,6 +184,7 @@ describe("WebFilePickerHost Agent 保存位置桥接", () => {
   beforeEach(() => {
     install_backend();
     save_path_responses.length = 0;
+    pending_claim_methods.length = 0;
   });
 
   afterEach(async () => {
@@ -229,5 +233,22 @@ describe("WebFilePickerHost Agent 保存位置桥接", () => {
       await Promise.resolve();
     });
     expect(save_path_responses).toEqual([{ request_id: "req-1", path: "/data/home/结果.md" }]);
+  });
+
+  it("迟连接领取按 POST 契约读取驻留列表", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(createElement(WebFilePickerHost));
+    });
+    for (let round = 0; round < 10; round += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    // 后端路由只注册 POST：用 GET 领取会被判为不存在，迟连接窗口的请求永远领不到。
+    expect(pending_claim_methods).toEqual(["POST"]);
   });
 });

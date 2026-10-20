@@ -55,12 +55,8 @@ await build({
       external: [...builtinModules, /^node:/u, "mupdf"],
       input: {
         index: project_path("src", "web", "web-server-main.ts"),
-        "backend-runtime-worker-entry": project_path(
-          "src",
-          "backend",
-          "bootstrap",
-          "backend-runtime-worker-entry.ts",
-        ),
+        // 桌面 Backend Runtime worker 只由桌面产品入口（src/index.ts）加载：Web 服务进程
+        // 自持组合根，重型计算走下列 4 个 worker 池，不为无调用方的桌面入口产出部署文件。
         "rpgmaker-mv-mz-prepare-worker-entry": project_path(
           "src",
           "backend",

@@ -29,6 +29,7 @@ const BOOTSTRAP: WebHostBootstrap = {
     autoUpdate: false,
   },
   session: { established: true },
+  anotherInstance: null,
 };
 
 /** 订阅总线并记录收到的意图，按给定结果结算。 */

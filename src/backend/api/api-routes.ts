@@ -11,10 +11,7 @@ import type { AgentService } from "../agent/agent-service";
 import type { ApiPostJsonRoute, ApiRequestRoute } from "./api-request";
 import { ok } from "./api-types";
 import type { WebFileService } from "../file/web-file-service";
-import {
-  read_save_path_response,
-  type WebAgentSavePathHost,
-} from "./web-agent-save-path-host";
+import { read_save_path_response, type WebAgentSavePathHost } from "./web-agent-save-path-host";
 import {
   create_export_directory,
   release_materials,
@@ -388,9 +385,10 @@ export function register_api_routes(context: ApiRouteContext): void {
     const request_id = String(body["request_id"] ?? "");
     if (request_id === "") throw new AppError("request.validation_failed");
     const responded = host.respond_to_request(request_id, read_save_path_response(body));
-    if (!responded) throw new AppError("request.validation_failed", {
-      public_details: { reason: "web_save_path_request_unknown" },
-    });
+    if (!responded)
+      throw new AppError("request.validation_failed", {
+        public_details: { reason: "web_save_path_request_unknown" },
+      });
     return {};
   });
   context.postJson("/api/agent/question/resolve", (body) => agent.resolve_question(body));
@@ -510,6 +508,10 @@ export function register_api_routes(context: ApiRouteContext): void {
   context.postJson("/api/translation/files/generate", () =>
     services.files.translationGeneration.generate_files(),
   );
+  context.postJson("/api/translation/files/outputs", () => ({
+    // 下载清单与受控下载边界同源，覆盖该工程全部语言的译文输出目录。
+    files: services.files.translationGeneration.read_output_files(),
+  }));
   context.request("GET", "/api/translation/files/download", (request) => {
     const requested_path = new URL(request.url).searchParams.get("path");
     if (requested_path === null || requested_path === "") {

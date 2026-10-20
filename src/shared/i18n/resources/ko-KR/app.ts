@@ -109,7 +109,8 @@ export const ko_kr_app = {
     upload: "파일 업로드",
     upload_hint: "이 기기에서 백엔드 임시 영역으로 업로드한 뒤 가져옵니다",
     upload_directory: "폴더 업로드",
-    upload_directory_hint: "폴더 안의 상대 구조를 유지해 업로드하므로 게임과 자료 폴더를 그대로 가져옵니다",
+    upload_directory_hint:
+      "폴더 안의 상대 구조를 유지해 업로드하므로 게임과 자료 폴더를 그대로 가져옵니다",
     uploading: "업로드 중 …",
     upload_failed: "업로드에 실패했습니다 …",
     file_name: "파일 이름",
@@ -123,6 +124,10 @@ export const ko_kr_app = {
     submit: "입장",
     failed: "접근 자격 증명이 유효하지 않거나 만료되었습니다 …",
     capability_unavailable: "현재 Web 실행 환경에서는 이 작업을 사용할 수 없습니다 …",
+  },
+  web_instance: {
+    conflict:
+      "같은 데이터 루트에서 다른 인스턴스가 이미 실행 중입니다(PID {PID}, 포트 {PORT}). 이번 시작은 계속할 수 있지만 인스턴스 간 쓰기는 개정 충돌로 거부됩니다 …",
   },
   quality_rule_import: {
     duplicate_description: "중복 규칙 {COUNT}개를 발견했습니다. 처리 방법을 선택해 주세요 …",

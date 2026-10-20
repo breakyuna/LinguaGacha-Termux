@@ -16,7 +16,11 @@ import { BackendServices } from "../bootstrap/backend-services";
 import { ProjectDatabase } from "../database/database-operations";
 import type { BackendWorkerExecution } from "../worker/worker-execution";
 import { LogManager } from "../log/log-manager";
-import { ApiGatewayServer } from "./api-gateway-server";
+import {
+  ApiGatewayServer,
+  build_web_bootstrap_script_tag,
+  type WebGatewayOptions,
+} from "./api-gateway-server";
 import { ApiStreamHub } from "./api-stream-hub";
 import { AppError } from "../../shared/error";
 
@@ -347,6 +351,47 @@ describe("ApiGatewayServer", () => {
     await expect(gateway.stop()).resolves.toBeUndefined();
   });
 
+  it("启动配置按入口提供的实例事实报告同数据根第二实例", async () => {
+    const another_instance = {
+      pid: 4321,
+      port: 5555,
+      started_at: "2026-10-18T09:30:00.000Z",
+    };
+    const reported = create_gateway_fixture(create_app_root(), new ProjectDatabase(), undefined, {
+      readAnotherInstance: () => another_instance,
+    }).gateway;
+    const without_other_instance = create_gateway();
+
+    const with_instance = await fetch(`${(await reported.start()).baseUrl}/api/web/bootstrap`);
+    const single_instance = await fetch(
+      `${(await without_other_instance.start()).baseUrl}/api/web/bootstrap`,
+    );
+
+    expect(
+      ((await with_instance.json()) as { data?: { anotherInstance?: unknown } }).data,
+    ).toMatchObject({ anotherInstance: another_instance });
+    expect(
+      ((await single_instance.json()) as { data?: { anotherInstance?: unknown } }).data,
+    ).toMatchObject({ anotherInstance: null });
+  });
+
+  it("内联启动配置转义 <，数据根字符串不能突破脚本标签", () => {
+    const hostile_json = JSON.stringify({
+      anotherInstance: { started_at: "</script><script>alert(1)</script>" },
+    });
+
+    const tag = build_web_bootstrap_script_tag(hostile_json);
+
+    // 脚本标签内不得出现可提前闭合的 </script>。
+    expect(tag).not.toContain("</script><script>");
+    expect(tag).toContain("\\u003c/script>");
+    // 转义保持 JSON 语义：解析后仍是原始字符串。
+    const embedded = tag.slice(tag.indexOf("=") + 1, tag.lastIndexOf(";</script>"));
+    expect(JSON.parse(embedded)).toEqual({
+      anotherInstance: { started_at: "</script><script>alert(1)</script>" },
+    });
+  });
+
   /** 为生命周期测试创建可自动释放的网关。 */
   function create_gateway(): ApiGatewayServer {
     return create_gateway_fixture(create_app_root(), new ProjectDatabase()).gateway;
@@ -357,6 +402,7 @@ describe("ApiGatewayServer", () => {
     app_root: string,
     database: ProjectDatabase,
     log_manager: LogManager = create_log_manager(app_root),
+    web?: WebGatewayOptions,
   ): { gateway: ApiGatewayServer; backend_services: BackendServices } {
     const paths = new AppPathService({
       appRoot: app_root,
@@ -387,6 +433,7 @@ describe("ApiGatewayServer", () => {
         reorder: vi.fn(),
       },
       eventStream: new ApiStreamHub(),
+      ...(web === undefined ? {} : { web }),
     });
     cleanup_callbacks.push(
       async () => await database.close(),

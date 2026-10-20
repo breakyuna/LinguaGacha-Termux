@@ -10,6 +10,11 @@ import {
 } from "../backend/worker/worker-execution";
 import { GuiBackendBootstrap } from "../backend/bootstrap/gui-backend-bootstrap";
 import { create_web_access_session } from "../backend/api/web-access-session";
+import {
+  acquire_web_instance_marker,
+  release_web_instance_marker,
+} from "../backend/api/web-instance-marker";
+import type { WebInstanceMarker } from "../shared/backend-api";
 import { ChromiumBrowser, resolve_chromium_executable_path } from "../native/chromium-browser";
 import { create_chromium_image_host } from "../native/chromium-image-host";
 import { create_chromium_pdf_host } from "../native/chromium-pdf-host";
@@ -21,6 +26,10 @@ const DEFAULT_WORKSPACE_RESOURCES_PATH = path.join("resources", "workspace");
 const PDF_PRINT_STYLES_PATH = path.join("resources", "pdf-print.css"); // 构建生成的内嵌数学样式
 const PDF_PRINT_FONTS_DIRECTORY = path.join("dist", "fonts"); // 渲染产物内的共享字体目录
 const DEFAULT_PORT = 0; // 0 表示随机端口，启动结果提供真实访问地址
+
+/** 同数据根第二个实例的提示文案前缀，与启动信息块共用同一输出通道。 */
+const ANOTHER_INSTANCE_WARNING_PREFIX = "  [警告]";
+const ANOTHER_INSTANCE_WARNING_INDENT = "         ";
 
 export interface WebEntryOptions {
   argv: readonly string[];
@@ -160,6 +169,7 @@ export async function run_web_entry(options: WebEntryOptions): Promise<WebEntryR
           },
           chromium_browser,
         );
+  let another_instance: WebInstanceMarker | null = null; // 监听就绪后由实例标记占位结果填写
   const bootstrap = new GuiBackendBootstrap({
     appRoot: entry_arguments.appRoot,
     builtinRoot: entry_arguments.builtinRoot,
@@ -187,26 +197,58 @@ export async function run_web_entry(options: WebEntryOptions): Promise<WebEntryR
       ...(entry_arguments.allowedHosts.length === 0
         ? {}
         : { allowedHosts: entry_arguments.allowedHosts }),
+      // 启动配置按读取函数取实例事实，端口与第二实例判定在监听就绪后才确定。
+      readAnotherInstance: () => another_instance,
     },
   });
 
   let is_stopping = false;
+  let owns_instance_marker = false; // 只有本实例成功占位的标记才在停止时删除
   const stop = async (): Promise<void> => {
     if (is_stopping) return;
     is_stopping = true;
     try {
       await bootstrap.stop();
     } finally {
+      // 优雅停止时尽力删除实例标记，删除失败不影响后端与宿主的收尾。
+      if (owns_instance_marker) {
+        await release_web_instance_marker({
+          dataRoot: entry_arguments.dataRoot,
+          pid: process.pid,
+        });
+      }
       // 宿主浏览器独立于后端生命周期：后端停止后结束进程，避免遗留任务拥有的浏览器。
       await chromium_browser?.dispose();
     }
   };
 
   const start_result = await bootstrap.start();
+  // 实例标记在监听就绪后创建，端口用真实监听端口；标记只承载提示事实，不构成互斥锁。
+  const instance_marker = await acquire_web_instance_marker({
+    dataRoot: entry_arguments.dataRoot,
+    port: start_result.apiPort,
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+  });
+  owns_instance_marker = instance_marker.status === "acquired";
   const access_url = `${start_result.apiBaseUrl}/#credential=${access_session.credential}`;
   write_line("LinguaGacha Web 服务已就绪。");
   write_line(`  访问地址: ${access_url}`);
   write_line(`  数据根:   ${entry_arguments.dataRoot}`);
+  if (instance_marker.status === "conflict") {
+    const existing = instance_marker.existing;
+    another_instance = existing;
+    write_line(
+      `${ANOTHER_INSTANCE_WARNING_PREFIX} 同一数据根已有另一个实例在运行：PID ${existing.pid}，端口 ${existing.port}，启动于 ${existing.started_at}`,
+    );
+    write_line(
+      `${ANOTHER_INSTANCE_WARNING_INDENT}本次启动仍可继续；跨实例写入会按修订冲突（409 data.revision_conflict）拒绝，请避免同时操作同一数据。`,
+    );
+  } else if (instance_marker.status === "unavailable") {
+    write_line(
+      `${ANOTHER_INSTANCE_WARNING_PREFIX} 无法创建实例标记（${instance_marker.reason}），同数据根多实例提示不可用。`,
+    );
+  }
   write_line(
     chromium_executable === null
       ? "  图片/PDF 宿主: 未找到 Chromium 可执行文件，相关能力不可用（可用 LINGUAGACHA_CHROMIUM_PATH 指定）。"

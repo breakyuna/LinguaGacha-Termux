@@ -91,7 +91,8 @@ const DESKTOP_ERROR_MESSAGES: Record<DesktopLocalErrorCode, string> = {
   network_failed: "The network request failed.",
 };
 
-const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/neavo/LinguaGacha/releases/latest";
+const GITHUB_LATEST_RELEASE_URL =
+  "https://api.github.com/repos/breakyuna/LinguaGacha-Termux/releases/latest";
 
 /**
  * 携带 Backend API 错误码，保持渲染层错误分支可判定

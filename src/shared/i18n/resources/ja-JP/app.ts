@@ -111,7 +111,8 @@ export const ja_jp_app = {
     upload: "ファイルをアップロード",
     upload_hint: "この端末からバックエンドの一時領域へアップロードしてから取り込みます",
     upload_directory: "フォルダーをアップロード",
-    upload_directory_hint: "フォルダー内の相対構造を保ったままアップロードし、ゲームや素材ディレクトリをそのまま取り込みます",
+    upload_directory_hint:
+      "フォルダー内の相対構造を保ったままアップロードし、ゲームや素材ディレクトリをそのまま取り込みます",
     uploading: "アップロード中 …",
     upload_failed: "アップロードに失敗しました …",
     file_name: "ファイル名",
@@ -125,6 +126,10 @@ export const ja_jp_app = {
     submit: "入る",
     failed: "アクセスキーが無効か、有効期限が切れています …",
     capability_unavailable: "この操作は現在の Web 実行環境では利用できません …",
+  },
+  web_instance: {
+    conflict:
+      "同じデータ根で別のインスタンスが既に実行中です（PID {PID}、ポート {PORT}）。今回の起動は継続できますが、インスタンス間の書き込みは改訂競合として拒否されます …",
   },
   quality_rule_import: {
     duplicate_description: "重複するルールが {COUNT} 件あります。処理方法を選択してください …",

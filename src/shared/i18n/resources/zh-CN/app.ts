@@ -123,6 +123,10 @@ export const zh_cn_app = {
     failed: "访问凭据无效或已失效 …",
     capability_unavailable: "当前 Web 运行环境不支持该操作 …",
   },
+  web_instance: {
+    conflict:
+      "同一数据根已有另一个实例在运行（PID {PID}，端口 {PORT}）；本次启动仍可继续，跨实例写入会按修订冲突拒绝 …",
+  },
   quality_rule_import: {
     duplicate_description: "检测到 {COUNT} 条重复规则，请选择处理方式 …",
   },

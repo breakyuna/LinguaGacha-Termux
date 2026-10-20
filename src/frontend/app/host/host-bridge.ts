@@ -1,5 +1,6 @@
 import type { DesktopBridgeApi } from "@gui/bridge-api";
 import type { DesktopShellInfo } from "@gui/bridge-types";
+import type { WebInstanceMarker } from "@shared/backend-api";
 
 export const WEB_BOOTSTRAP_GLOBAL_NAME = "__LG_WEB_BOOTSTRAP__"; // 服务端注入的启动配置全局名
 
@@ -20,6 +21,7 @@ export type WebHostBootstrap = {
   backendApi: { baseUrl: string };
   capabilities: WebHostCapabilities;
   session: { established: boolean }; // 会话 Cookie 为 HttpOnly，是否已建立由服务端报告
+  anotherInstance: WebInstanceMarker | null; // 同数据根第二个实例的提示事实；单实例为 null
 };
 
 let installed_web_host_bridge: DesktopBridgeApi | null = null;

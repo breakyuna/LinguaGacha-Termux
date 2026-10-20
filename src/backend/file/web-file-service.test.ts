@@ -260,6 +260,31 @@ describe("web file service", () => {
     expect(() => service.open_download(copy_path)).toThrow(AppError);
   });
 
+  it("下载拒绝界内符号链接逃逸，经链接进入界内仍放行", () => {
+    // 允许根内的符号链接指向界外文件：词法在界内也必须拒绝。
+    const escape_file_link = path.join(data_root, "home", "escape.txt");
+    fs.symlinkSync(path.join(outside_root, "secret", "hidden.txt"), escape_file_link);
+    expect(() => service.open_download(escape_file_link)).toThrow(AppError);
+
+    // 界外路径经符号链接落入允许根：不扩大可读范围，保持放行。
+    const into_root_link = path.join(outside_root, "into-home.txt");
+    fs.symlinkSync(path.join(data_root, "home", "novels", "a.txt"), into_root_link);
+    expect(service.open_download(into_root_link).name).toBe("a.txt");
+
+    fs.rmSync(escape_file_link);
+    fs.rmSync(into_root_link);
+  });
+
+  it("列举拒绝界内符号链接逃逸，普通目录不受影响", () => {
+    const escape_directory_link = path.join(data_root, "home", "escape-dir");
+    fs.symlinkSync(path.join(outside_root, "secret"), escape_directory_link);
+
+    expect(() => service.list_directory("fixture-home", "/escape-dir")).toThrow(AppError);
+    expect(service.list_directory("fixture-home", "/novels").entries).toHaveLength(2);
+
+    fs.rmSync(escape_directory_link);
+  });
+
   it("释放后拒绝新上传，dispose 清理服务拥有的材料", async () => {
     const staged = await service.stage_upload(
       "keep.txt",

@@ -18,6 +18,11 @@ import { AppError } from "../../shared/error";
 import type { AppSettingService } from "../app/app-setting-service";
 import { ProjectSessionState } from "../project/project-session-state";
 import {
+  APP_LANGUAGE_DEFINITIONS,
+  resolve_app_locale,
+  type AppLanguage,
+} from "../../domain/app-language";
+import {
   TranslationFileGenerationService,
   type OutputFolderOpener,
 } from "./translation-file-generation-service";
@@ -91,6 +96,15 @@ function create_setting_service(
       write_translated_name_fields_to_file: true,
     }),
   } as unknown as AppSettingService;
+}
+
+/** 按界面语言解析该工程的译文与双语对照目录名，与生成服务共用同一资源来源。 */
+function output_directory_names(project_stem: string, app_language: AppLanguage): [string, string] {
+  const text = create_text_resolver(resolve_app_locale(app_language));
+  return [
+    `${project_stem}_${text("app.translation_generation.directory.translated")}`,
+    `${project_stem}_${text("app.translation_generation.directory.bilingual")}`,
+  ];
 }
 
 /** 隔离数据库读取，文件写出仍使用真实格式处理器和临时目录。 */
@@ -814,5 +828,127 @@ describe("TranslationFileGenerationService", () => {
     const decoy = path.join(temp_dir, "demo_译文_备份");
     fs.mkdirSync(decoy, { recursive: true });
     expect(service.read_output_directories()).not.toContain(decoy);
+  });
+
+  it("切换界面语言后旧语言输出目录与撞名目录仍在受控下载边界内", async () => {
+    const project_path = path.join(temp_dir, "demo.lg");
+    const session_state = new ProjectSessionState();
+    session_state.mark_loaded(project_path);
+    const database = create_database([
+      {
+        id: 1,
+        src: "原文",
+        dst: "translation",
+        status: "PROCESSED",
+        file_type: "TXT",
+        file_path: "script.txt",
+        row: 0,
+      },
+    ]);
+    // 界面语言切到英文，工程目录下留有此前中文界面生成的输出目录。
+    const service = new TranslationFileGenerationService(
+      database,
+      create_setting_service({ app_language: "EN" }),
+      session_state,
+      vi.fn<OutputFolderOpener>(),
+      create_pdf_execution(),
+    );
+
+    const legacy_translated = path.join(temp_dir, "demo_译文");
+    const legacy_bilingual = path.join(temp_dir, "demo_译文_双语对照");
+    const legacy_timestamped = path.join(temp_dir, "demo_译文_20261018_120000");
+    const decoy = path.join(temp_dir, "demo_译文_备份");
+    for (const directory of [legacy_translated, legacy_bilingual, legacy_timestamped, decoy]) {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, "script.txt"), "旧语言译文");
+    }
+
+    const result = await service.generate_files();
+
+    // 生成行为不变：仍写当前界面语言的输出目录，回执清单只含本次落盘内容。
+    expect(result.output_path).toBe(path.join(temp_dir, "demo_Translated"));
+    expect(result.files?.map((file) => file.path)).toEqual([
+      path.join(temp_dir, "demo_Translated", "script.txt"),
+      path.join(temp_dir, "demo_Translated_Bilingual", "script.txt"),
+    ]);
+
+    const directories = service.read_output_directories();
+    expect(directories).toHaveLength(5);
+    for (const directory of [
+      legacy_translated,
+      legacy_bilingual,
+      legacy_timestamped, // 撞名时间戳目录同样纳入边界。
+      path.join(temp_dir, "demo_Translated"),
+      path.join(temp_dir, "demo_Translated_Bilingual"),
+    ]) {
+      expect(directories).toContain(directory);
+    }
+    expect(directories).not.toContain(decoy);
+
+    const download = service.open_download(path.join(legacy_translated, "script.txt"));
+    expect(download.name).toBe("script.txt");
+    expect(download.size).toBe(fs.statSync(path.join(legacy_translated, "script.txt")).size);
+    await new Promise<void>((resolve) => {
+      download.stream.on("error", () => resolve());
+      download.stream.on("close", () => resolve());
+      download.stream.destroy();
+    });
+    expect(() => service.open_download(path.join(decoy, "script.txt"))).toThrow(AppError);
+  });
+
+  it("每种界面语言的输出目录都进入受控下载边界和下载清单", async () => {
+    const project_path = path.join(temp_dir, "demo.lg");
+    const session_state = new ProjectSessionState();
+    session_state.mark_loaded(project_path);
+    const service = new TranslationFileGenerationService(
+      create_database([]),
+      create_setting_service(),
+      session_state,
+      vi.fn<OutputFolderOpener>(),
+      create_pdf_execution(),
+    );
+
+    const language_codes = APP_LANGUAGE_DEFINITIONS.map(({ code }) => code);
+    for (const app_language of language_codes) {
+      const [translated, bilingual] = output_directory_names("demo", app_language);
+      for (const name of [translated, bilingual]) {
+        fs.mkdirSync(path.join(temp_dir, name), { recursive: true });
+        fs.writeFileSync(path.join(temp_dir, name, "script.txt"), name);
+      }
+    }
+    fs.mkdirSync(path.join(temp_dir, "demo_备注"), { recursive: true }); // 非输出目录。
+    // 目录导入的输出是嵌套结构：递归列举必须覆盖子目录文件，展示名用相对路径。
+    const nested_root = path.join(temp_dir, output_directory_names("demo", "ZH")[0]);
+    fs.mkdirSync(path.join(nested_root, "batch-fold", "chapters"), { recursive: true });
+    fs.writeFileSync(path.join(nested_root, "batch-fold", "chapters", "ch01.txt"), "nested");
+    fs.writeFileSync(path.join(nested_root, "batch-fold", "chapters", "ch02.txt"), "nested");
+
+    const directories = service.read_output_directories();
+    expect(directories).toHaveLength(language_codes.length * 2);
+    expect(directories).not.toContain(path.join(temp_dir, "demo_备注"));
+
+    const files = service.read_output_files();
+    expect(files).toHaveLength(language_codes.length * 2 + 2);
+    for (const app_language of language_codes) {
+      const [translated, bilingual] = output_directory_names("demo", app_language);
+      expect(files.map((file) => file.path)).toContain(
+        path.join(temp_dir, translated, "script.txt"),
+      );
+      expect(files.map((file) => file.path)).toContain(
+        path.join(temp_dir, bilingual, "script.txt"),
+      );
+    }
+    expect(files.map((file) => file.name)).toContain("batch-fold/chapters/ch01.txt");
+    expect(files.map((file) => file.name)).toContain("batch-fold/chapters/ch02.txt");
+
+    const download = service.open_download(
+      path.join(temp_dir, output_directory_names("demo", "DE")[0], "script.txt"),
+    );
+    expect(download.name).toBe("script.txt");
+    await new Promise<void>((resolve) => {
+      download.stream.on("error", () => resolve());
+      download.stream.on("close", () => resolve());
+      download.stream.destroy();
+    });
   });
 });

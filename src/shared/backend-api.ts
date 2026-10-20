@@ -3,6 +3,16 @@ export const BACKEND_API_HOST = "127.0.0.1"; // Backend API 只监听本机 IPv4
 // Web 访问会话 Cookie 名；一次性启动凭据换来的会话令牌，服务端与 renderer 共用同一名称
 export const WEB_ACCESS_SESSION_COOKIE_NAME = "lg_web_session";
 
+/**
+ * 数据根下独占实例标记的内容，同时作为 /api/web/bootstrap 中另一实例提示的载荷形状。
+ * 该事实只服务于界面提醒：同数据根多实例仍可并存，跨进程写入由数据库修订冲突检测收敛。
+ */
+export type WebInstanceMarker = {
+  pid: number;
+  port: number;
+  started_at: string; // ISO 8601 启动时间
+};
+
 const BACKEND_API_BASE_URL_ARG_PREFIX = "--backend-api-base-url=";
 
 // base URL 在进入 renderer 前统一去掉尾部斜杠，避免调用层重复处理路径拼接
