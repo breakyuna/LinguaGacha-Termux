@@ -14,6 +14,7 @@
 
 |问题|实现入口|
 |---|---|
+|Web 启动与停止|[Web 入口](../src/web/web-entry.ts)、[信号与异常处理](../src/web/web-server-main.ts)|
 |启动、资源注入与关闭|[产品入口](../src/index.ts)、[后端组合根](../src/backend/bootstrap/)、[GUI 入口](../src/gui/gui-entry.ts)|
 |CLI 参数与帮助|[参数解析](../src/cli/cli-parser.ts)、[帮助文本](../src/cli/cli-output.ts)|
 |CLI 输出与任务|[状态输出](../src/cli/cli-status-reporter.ts)、[任务执行](../src/cli/job/cli-job-runner.ts)|
@@ -63,6 +64,8 @@
 
 ### Termux Web 运行
 
+用户安装、使用、数据备份与限制见 [README](../README.md)。本节保留开发与运行配置。
+
 - `npm run build:web` 产出 `build/web/`：Node 服务入口与 worker 入口、`dist/` 渲染产物、`builtin/` 只读资源、`resources/workspace/` 工作区运行目录和 `version.txt`。
 - `npm run start:web` 运行 `node build/web/index.mjs`，启动时打印访问地址和一次性访问凭据；浏览器打开该地址即建立会话，服务停止后会话失效。
 - 启动参数：`--port=<n>`（缺省随机）、`--host=<地址>`、`--data-root=<目录>`、`--app-root=<目录>`、`--builtin-root=<目录>`、`--static-root=<目录>`、`--workspace-runtime=<目录>`、`--allowed-host=<Host>`（可重复）。
@@ -76,7 +79,7 @@
 - 按最终改动选择检查，命中多项时合并执行。
 - 已有结果覆盖最终改动后即可交付。
 - 新增修改、失败或未解决的影响范围再触发补充验证。
-- Termux 本机资源有限，验证节奏见 [HANDOFF](../HANDOFF.md) 的验证压缩策略：编辑批次后只跑 `check` + `lint`，测试只跑受影响目录，TypeScript 探针一批一次，浏览器每里程碑一次且失败先 dump DOM。
+- Termux 本机资源有限，按下述触发条件选择验证并串行安排重型任务；已有结果覆盖最终改动后不重复运行。浏览器交互失败时先读取 DOM 与日志定位，避免重复空等。
 
 ### 文档与资源
 

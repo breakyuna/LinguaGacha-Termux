@@ -62,11 +62,11 @@ command -v html-screenshot
 
 ### 3.3 命令登记
 
-下表是目标命令约定，建立文档时尚未实现。对应脚本存在且验证通过后，在 `HANDOFF.md` 登记真实用法，并同步 `WORKFLOW.md` 与 README。
+下表描述命令责任。当前命令入口见 `package.json`，用户用法见 [README](../README.md)，开发配置见 [WORKFLOW](WORKFLOW.md#termux-web-运行)，验证结果只在 `HANDOFF.md` 登记。
 
 |目标命令|预期责任|归属任务|
 |---|---|---|
-|`npm run dev:web`|Web 开发与受控代理，不启动 Electron|`TW-02`、`TW-04`|
+|`npm run dev:web`|构建并启动 Web 服务（无开发服务器与代理，同 `build:web` + `start:web`）|`TW-02`、`TW-04`|
 |`npm run build:web`|构建 Node 入口、React 页面、worker 与运行资源|`TW-02`、`TW-11`|
 |`npm run start:web`|从构建产物启动本机服务|`TW-02`、`TW-11`|
 
@@ -188,7 +188,7 @@ async function verifyPage() {
 - 阻塞记录要包含真实错误、已排查方向、影响任务、可独立推进内容和解除条件；不得仅写“环境问题”。
 - 下一步写成可执行的小目标，包含入口与首个验收，避免只写“继续优化”。
 - 每轮结束核对表格、任务详情、验证记录和下一步一致，不保留过期的“正在执行”描述。
-- 文档阶段只将 `TW-00` 标为完成。基础运行探针是 `TW-01` 的参考证据，不能因此将依赖兼容验证标为完成。
+- 任务完成以对应验收证据为准。文档整理和基础探针不能替代依赖、业务或平台验收。
 
 ## 7. 更新与故障恢复验收
 

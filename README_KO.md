@@ -1,3 +1,5 @@
+> This document retains the upstream desktop instructions. For this fork’s Termux Web setup and usage, see the [current README](README.md).
+
 <div align=center><img width="640px"  alt="hero-wide-v1" src="https://github.com/user-attachments/assets/ca23dd6d-a676-4c6b-a33e-0a2687bff534" /></div>
 <div align=center><img src="https://img.shields.io/github/v/release/neavo/LinguaGacha"/>   <img src="https://img.shields.io/github/license/neavo/LinguaGacha"/>   <img src="https://img.shields.io/github/stars/neavo/LinguaGacha"/></div>
 <p align='center'>AI로 소설, 게임, 자막 등 다양한 텍스트를 클릭 한 번으로 번역하는 차세대 텍스트 번역기</p>
