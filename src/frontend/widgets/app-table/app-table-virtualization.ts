@@ -2,6 +2,8 @@
 export const APP_TABLE_DEFAULT_ROW_HEIGHT = 36;
 // 控制表格预渲染缓冲，减少快速滚动时的空白闪烁。
 export const APP_TABLE_DEFAULT_VIRTUAL_OVERSCAN = 8;
+// 未声明宽度的弹性列在窄容器中的最小可读宽度；低于它时表格改为自身容器内横向滚动。
+export const APP_TABLE_FLEX_COLUMN_MIN_WIDTH = 120;
 
 type AppTableZebraTone = "odd" | "even";
 
@@ -87,4 +89,12 @@ export function build_app_table_placeholder_fill(
 // 用源索引稳定决定斑马纹，虚拟窗口切换时颜色不跳变。
 export function resolve_app_table_row_zebra(row_index: number): AppTableZebraTone {
   return Math.abs(row_index) % 2 === 1 ? "even" : "odd";
+}
+
+// 按列声明宽度与弹性列下限求表格最小宽度。
+export function resolve_app_table_min_width(columns: readonly { width?: number }[]): number {
+  return columns.reduce(
+    (total_width, column) => total_width + (column.width ?? APP_TABLE_FLEX_COLUMN_MIN_WIDTH),
+    0,
+  );
 }

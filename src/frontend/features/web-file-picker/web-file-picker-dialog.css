@@ -1,0 +1,22 @@
+/*
+ * 文件选择器是移动端主要的文件交互入口（浏览、上传、保存三种模式共用）。
+ * 触屏没有悬停态，且窄视口已进入抽屉导航的手机布局：列举行的可点击元素铺满
+ * 40px 行高，小尺寸按钮补到 40px 量级点击目标；桌面宽视口不渲染任何变化。
+ */
+@media (hover: none), (max-width: 767px) {
+  /* 行内边距让位给行高，整行都是点击目标，divide-y 仍负责行间分隔。 */
+  .web-file-picker__row {
+    padding-block: 0;
+  }
+
+  .web-file-picker__row-target {
+    min-height: 40px;
+  }
+
+  /* h-6 与 h-7 的小按钮直接补足高度：文件管理场景的可见大目标比视觉密度更重要，
+     且避免相邻按钮的热区互相重叠。 */
+  .web-file-picker__compact-button:not(:disabled),
+  .web-file-picker__footer-button:not(:disabled) {
+    min-height: 40px;
+  }
+}

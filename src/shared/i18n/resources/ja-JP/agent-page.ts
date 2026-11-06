@@ -132,6 +132,8 @@ export const ja_jp_agent_page = {
     no_message_text: "メッセージ本文なし",
     attachments: "添付ファイル {count} 件",
     reorder: "ドラッグして並べ替え",
+    move_up: "上へ移動",
+    move_down: "下へ移動",
     send_now: "今すぐ送信",
     sending: "送信中",
     delete: "メッセージを削除",

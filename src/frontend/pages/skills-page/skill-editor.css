@@ -244,6 +244,13 @@
 .skill-tree__row:has(:focus-visible) .skill-tree__actions {
   visibility: visible;
 }
+
+/* 触屏点按不产生 :focus-visible，重命名与删除入口需要常驻可见。 */
+@media (hover: none) {
+  .skill-tree__row .skill-tree__actions {
+    visibility: visible;
+  }
+}
 .skill-tree__action {
   display: grid;
   place-items: center;

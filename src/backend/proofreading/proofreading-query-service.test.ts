@@ -198,6 +198,35 @@ describe("ProofreadingQueryService", () => {
     );
   });
 
+  it("缺失筛选不实体化为空集，显式空数组仍按空选择保留", async () => {
+    const session_state = new ProjectSessionState();
+    session_state.mark_loaded("E:/Project/demo.lg");
+    const cache = create_cache();
+    const service = new ProofreadingQueryService({
+      sessionState: session_state,
+      cache,
+    });
+
+    // 未传 filters：读取器按缺省筛选合并；实体化成空集会让调用方得到空列表。
+    await service.query({ action: "list", query: {} });
+    const default_call = vi.mocked(cache.list).mock.calls.at(-1)?.[0] as
+      | { filters?: Record<string, unknown> }
+      | undefined;
+    expect(default_call?.filters ?? {}).not.toHaveProperty("outcomes");
+    expect(default_call?.filters ?? {}).not.toHaveProperty("glossary_entry_ids");
+
+    // 显式空数组是“用户清空选择”，必须保留而不是回落缺省。
+    await service.query({
+      action: "list",
+      query: { filters: { outcomes: [], glossary_entry_ids: [] } },
+    });
+    expect(cache.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ outcomes: [], glossary_entry_ids: [] }),
+      }),
+    );
+  });
+
   it("warning_summary 返回当前校对运行态的类型计数", async () => {
     const session_state = new ProjectSessionState();
     session_state.mark_loaded("E:/Project/demo.lg");

@@ -10,6 +10,7 @@ export const de_de_batch_translation = {
     stopping: "Wird gestoppt",
     detail_tooltip: "Zum Anzeigen der Details klicken",
     running: "Wird übersetzt",
+    interrupted: "Unterbrochen",
   },
   detail: {
     provider: "Anbieter",
@@ -35,6 +36,7 @@ export const de_de_batch_translation = {
       "Keine Schlüssel verfügbar. {count} Wiederholungen, erneuter Versuch läuft …",
     refresh_failed: "Fehler beim Aktualisieren der Übersetzungsaufgabe …",
     start_failed: "Fehler beim Starten der Übersetzungsaufgabe …",
+    interrupted: "Die letzte Übersetzungsaufgabe wurde unterbrochen. Sie können sie neu starten.",
     stop_failed: "Fehler beim Stoppen der Übersetzungsaufgabe …",
     reset_all_failed: "Fehler beim Zurücksetzen des gesamten Übersetzungsfortschritts …",
     reset_failed_failed: "Fehler beim Zurücksetzen der fehlgeschlagenen Übersetzungseinträge …",

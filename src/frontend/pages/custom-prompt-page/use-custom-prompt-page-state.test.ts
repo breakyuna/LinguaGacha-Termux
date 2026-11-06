@@ -73,6 +73,15 @@ vi.mock("@frontend/app/desktop/desktop-api", async (import_original) => {
   };
 });
 
+const release_materials_mock = vi.hoisted(() => vi.fn(async () => {}));
+const deliver_material_mock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@frontend/features/web-file-picker/web-file-picker-api", () => ({
+  release_web_file_materials: release_materials_mock,
+}));
+vi.mock("@frontend/features/web-file-picker/web-file-download", () => ({
+  deliver_web_file_material: deliver_material_mock,
+}));
+
 function create_runtime_fixture(): RuntimeFixture {
   let prompts_revision = 3;
   return {
@@ -407,6 +416,68 @@ describe("useCustomPromptPageState", () => {
     if (source === "preset") {
       expect(latest_state?.preset_menu_open).toBe(true);
     }
+  });
+
+  it("上传暂存材料导入成功后释放", async () => {
+    install_prompt_api();
+    Object.defineProperty(window, "desktopApp", {
+      configurable: true,
+      value: create_desktop_bridge_api_mock({
+        methods: {
+          pickPromptImportFilePath: async () => ({
+            canceled: false,
+            paths: [],
+            material_ids: ["mat-2"],
+          }),
+        },
+      }),
+    });
+    await render_hook();
+
+    await act(async () => {
+      await latest_state?.import_prompt_from_picker();
+    });
+    await flush_async_updates();
+
+    expect(api_fetch).toHaveBeenCalledWith("/api/quality/prompts/import", { material_id: "mat-2" });
+    expect(release_materials_mock).toHaveBeenCalledWith(["mat-2"]);
+    expect(deliver_material_mock).not.toHaveBeenCalled();
+  });
+
+  it("Web 下载交付按材料模式导出并交给受控下载", async () => {
+    install_prompt_api();
+    Object.defineProperty(window, "desktopApp", {
+      configurable: true,
+      value: create_desktop_bridge_api_mock({
+        methods: {
+          pickPromptExportFilePath: async () => ({
+            canceled: false,
+            paths: [],
+            material_ids: [],
+            web_download: true,
+          }),
+        },
+      }),
+    });
+    await render_hook();
+    // 渲染期的读取先消费基础实现，导出响应只在提交那一刻登记一次。
+    vi.mocked(api_fetch).mockImplementationOnce(async () => {
+      return {
+        material: { material_id: "mat-3", name: "translation-prompt.txt", size: 12 },
+      } as never;
+    });
+
+    await act(async () => {
+      await latest_state?.export_prompt_from_picker();
+    });
+    await flush_async_updates();
+
+    expect(api_fetch).toHaveBeenCalledWith("/api/quality/prompts/export", { material: true });
+    expect(deliver_material_mock).toHaveBeenCalledWith("mat-3");
+    expect(toast_fixture.current.push_toast).toHaveBeenCalledWith(
+      "success",
+      "app.feedback.export_success",
+    );
   });
 
   it("导出前保存失败时不导出旧正文", async () => {

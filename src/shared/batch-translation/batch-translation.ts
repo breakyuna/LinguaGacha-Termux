@@ -11,6 +11,7 @@ import {
 export type BatchTranslationMetrics = {
   active: boolean;
   stopping: boolean;
+  interrupted: boolean; // 崩溃恢复后的中断终态，供摘要与详情呈现
   elapsed_seconds: number;
   remaining_seconds: number;
   average_generation_speed: number; // 思考与输出 token 的累计平均生成速度
@@ -75,6 +76,7 @@ export function resolve_translation_task_metrics(args: {
     return {
       active: false,
       stopping: false,
+      interrupted: false,
       elapsed_seconds: 0,
       remaining_seconds: 0,
       average_generation_speed: 0,
@@ -101,6 +103,7 @@ export function resolve_translation_task_metrics(args: {
   return {
     active,
     stopping: snapshot.status === "stopping",
+    interrupted: snapshot.status === "interrupted",
     elapsed_seconds,
     remaining_seconds:
       progress.line <= 0

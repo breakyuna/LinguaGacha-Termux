@@ -41,17 +41,29 @@ export type QualityRuleUpdateRequest<K extends QualityRuleKind = QualityRuleKind
   };
 }[K];
 export type QualityRuleQueryRequest = { rule_type: QualityRuleKind };
-export type QualityRuleFileRequest = QualityRuleQueryRequest & { path: string };
+export type QualityRuleFileRequest = QualityRuleQueryRequest & {
+  path: string;
+  material_id?: string; // Web 材料模式：暂存材料身份，存在时忽略 path
+};
 export type QualityRuleEntriesResponse<K extends QualityRuleKind = QualityRuleKind> = {
   entries: QualityRuleEntryByKind[K][];
 };
-export type QualityRuleExportResponse = { path: string };
+export type QualityRuleExportResponse = {
+  path: string;
+  material?: { material_id: string; name: string; size: number }; // 材料模式才返回，供受控下载定位
+};
 export type QualityRulePresetRequest = QualityRuleQueryRequest & { virtual_id: string };
 export type QualityRulePresetSaveResponse = { item: QualityRulePresetItem };
 export type QualityRulePresetSaveRequest<K extends QualityRuleKind = QualityRuleKind> = {
   [P in K]: { rule_type: P; name: string; entries: QualityRuleEntryByKind[P][] };
 }[K];
 export type QualityRuleExportRequest<K extends QualityRuleKind = QualityRuleKind> = {
-  [P in K]: { rule_type: P; path: string; entries: QualityRuleEntryByKind[P][] };
+  [P in K]: {
+    rule_type: P;
+    path: string;
+    entries: QualityRuleEntryByKind[P][];
+    material?: boolean; // 为 true 时忽略 path，导出结果登记为暂存材料交付
+    material_name?: string; // 材料交付的文件名，缺省用交换格式常量；只接受单个基名
+  };
 }[K];
 export type QualityRulePresetRenameRequest = QualityRulePresetRequest & { new_name: string };

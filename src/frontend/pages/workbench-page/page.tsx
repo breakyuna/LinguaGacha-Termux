@@ -57,12 +57,16 @@ export function WorkbenchPage(_props: WorkbenchPageProps): JSX.Element {
         can_delete_selected_files={workbench_state.can_delete_selected_files}
         can_generate_translation={translation_generation.can_request_generation}
         can_close_project={workbench_state.can_close_project}
+        can_copy_project={workbench_state.can_copy_project}
         on_add_file={() => {
           void workbench_state.request_add_file();
         }}
         on_delete_selected={workbench_state.request_delete_selected_files}
         on_generate_translation={translation_generation.request_generation}
         on_close_project={workbench_state.request_close_project}
+        on_copy_project={() => {
+          void workbench_state.request_copy_project();
+        }}
       />
       <WorkbenchDialogs
         dialog_state={workbench_state.dialog_state}

@@ -24,6 +24,7 @@ import {
 import {
   is_batch_translation_start_mode,
   resolve_batch_translation_start_mode,
+  BATCH_TRANSLATION_COMMAND_ID_LIMIT,
   type BatchTranslationStartCommand,
   type AgentBatchTranslationRequest,
   type BatchTranslationResult,
@@ -44,14 +45,35 @@ export class BatchTranslationService {
   public subscribe(listener: BatchTranslationSnapshotListener): () => void {
     return this.runtime.subscribe(listener);
   }
+  /** 崩溃恢复线索的核对入口，由组合根在装配后调用。 */
+  public async restore_interrupted_run(): Promise<void> {
+    await this.runtime.restore_interrupted_run();
+  }
   /** 读取当前工程的完整翻译快照。 */
   public async snapshot(): Promise<BatchTranslationSnapshot> {
     return await this.runtime.build_snapshot();
   }
-  /** 收窄公开请求，返回受理结果与当前快照。 */
+  /** 收窄公开请求，按命令身份去重后返回受理结果与当前快照。 */
   public async start(request: JsonRecord): Promise<MutableJsonRecord> {
-    await this.start_current_project(this.normalize_command(request));
-    return { accepted: true, batch_translation: (await this.snapshot()) as unknown as JsonValue };
+    const command = this.normalize_command(request);
+    const command_id = command.command_id;
+    if (command_id !== undefined) {
+      const known = this.runtime.find_command(command_id);
+      // 重复提交只回放在途或终态事实，不新建运行也不新占运行互斥。
+      if (known !== null)
+        return {
+          accepted: false,
+          duplicate: true,
+          command_id,
+          batch_translation: known.snapshot as unknown as JsonValue,
+        };
+    }
+    await this.start_current_project(command);
+    return {
+      accepted: true,
+      ...(command_id === undefined ? {} : { command_id }),
+      batch_translation: (await this.snapshot()) as unknown as JsonValue,
+    };
   }
   /** 确认工程后预约独立运行，句柄用于等待完整收尾。 */
   public async start_current_project(
@@ -67,7 +89,7 @@ export class BatchTranslationService {
         ? { item_statuses: command.include_errors ? ["NONE", "ERROR"] : ["NONE"] }
         : {}),
     };
-    const handle = this.runtime.begin_standalone(run_command.operation);
+    const handle = this.runtime.begin_standalone(run_command.operation, command.command_id);
     await this.runtime.execute(handle, () =>
       this.runner.run(handle, run_command, this.read_run_context()),
     );
@@ -132,16 +154,24 @@ export class BatchTranslationService {
   public async get_snapshot(): Promise<MutableJsonRecord> {
     return { batch_translation: (await this.snapshot()) as unknown as JsonValue };
   }
-  /** 公开入口统一校验目的和范围，拒绝无效 ID，去重后保留首次顺序。 */
+  /** 公开入口统一校验目的、范围和命令身份，拒绝无效 ID，去重后保留首次顺序。 */
   private normalize_command(request: JsonRecord): BatchTranslationStartCommand {
     const operation = request["operation"];
     if (operation !== "translate" && operation !== "retranslate")
       throw new AppError("request.validation_failed");
     const allowed =
       operation === "translate"
-        ? ["operation", "mode", "scope", "include_errors"]
-        : ["operation", "scope"];
+        ? ["operation", "mode", "scope", "include_errors", "command_id"]
+        : ["operation", "scope", "command_id"];
     if (Object.keys(request).some((key) => !allowed.includes(key)))
+      throw new AppError("request.validation_failed");
+    const command_id = request["command_id"];
+    if (
+      command_id !== undefined &&
+      (typeof command_id !== "string" ||
+        command_id.length === 0 ||
+        command_id.length > BATCH_TRANSLATION_COMMAND_ID_LIMIT)
+    )
       throw new AppError("request.validation_failed");
     const raw = request["scope"];
     if (!is_json_record(raw)) throw new AppError("request.validation_failed");
@@ -163,12 +193,18 @@ export class BatchTranslationService {
     } else throw new AppError("request.validation_failed");
     if (operation === "retranslate") {
       if (scope.kind !== "items") throw new AppError("request.validation_failed");
-      return { operation, scope };
+      return { operation, scope, ...(command_id === undefined ? {} : { command_id }) };
     }
     const mode = request["mode"] ?? "new";
     const include_errors = request["include_errors"] ?? false;
     if (!is_batch_translation_start_mode(mode) || typeof include_errors !== "boolean")
       throw new AppError("request.validation_failed");
-    return { operation, mode, scope, include_errors };
+    return {
+      operation,
+      mode,
+      scope,
+      include_errors,
+      ...(command_id === undefined ? {} : { command_id }),
+    };
   }
 }

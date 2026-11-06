@@ -181,16 +181,25 @@ export class ProofreadingQueryService {
   /**
    * 只接受稳定过滤字段，术语筛选直接读取 entry_id。
    */
+  /**
+   * 筛选输入保留缺失语义：读取器用“字段是否存在”区分显式空选择与缺省筛选
+   * （`normalize_runtime_filter_options`），把缺失字段实体化成空数组会让
+   * 未传筛选的调用方（非 GUI 消费者）得到空列表，这里只转写实际出现的字段。
+   */
   private read_filters(value: JsonValue | undefined): ProofreadingFilterOptions {
     const record = read_json_record(value);
-    return {
-      outcomes: this.read_string_array(record["outcomes"] as JsonValue | undefined),
-      files: this.read_file_selection(record["files"] as JsonValue | undefined),
-      glossary_entry_ids: this.read_string_array(
+    const filters: Partial<ProofreadingFilterOptions> = {};
+    if (record["outcomes"] !== undefined)
+      filters.outcomes = this.read_string_array(record["outcomes"] as JsonValue | undefined);
+    if (record["files"] !== undefined)
+      filters.files = this.read_file_selection(record["files"] as JsonValue | undefined);
+    if (record["glossary_entry_ids"] !== undefined)
+      filters.glossary_entry_ids = this.read_string_array(
         record["glossary_entry_ids"] as JsonValue | undefined,
-      ),
-      include_without_glossary_miss: record["include_without_glossary_miss"] !== false,
-    };
+      );
+    if (typeof record["include_without_glossary_miss"] === "boolean")
+      filters.include_without_glossary_miss = record["include_without_glossary_miss"];
+    return filters as ProofreadingFilterOptions;
   }
 
   /** 文件引用在 JSON 边界校验，失效选择不能扩大成默认全选。 */

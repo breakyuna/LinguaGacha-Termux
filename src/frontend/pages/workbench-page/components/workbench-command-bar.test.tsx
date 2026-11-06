@@ -38,6 +38,7 @@ function create_workbench_command_bar_props(): ComponentProps<typeof WorkbenchCo
   const translation_task_metrics = {
     active: false,
     stopping: false,
+    interrupted: false,
     elapsed_seconds: 0,
     remaining_seconds: 0,
     average_generation_speed: 0,
@@ -70,10 +71,12 @@ function create_workbench_command_bar_props(): ComponentProps<typeof WorkbenchCo
     can_delete_selected_files: true,
     can_generate_translation: true,
     can_close_project: true,
+    can_copy_project: true,
     on_add_file: () => {},
     on_delete_selected: () => {},
     on_generate_translation: () => {},
     on_close_project: () => {},
+    on_copy_project: vi.fn(),
   };
 }
 
@@ -120,6 +123,22 @@ describe("WorkbenchCommandBar", () => {
     await render_command_bar(props);
 
     expect(find_button("app.action.delete").disabled).toBe(true);
+  });
+
+  it("工程副本按钮无权限时禁用", async () => {
+    const props = create_workbench_command_bar_props();
+    props.can_copy_project = false;
+    await render_command_bar(props);
+
+    expect(find_button("workbench_page.action.copy_project").disabled).toBe(true);
+  });
+
+  it("工程副本按钮调用下载入口", async () => {
+    const props = await render_command_bar();
+
+    await act(async () => find_button("workbench_page.action.copy_project").click());
+
+    expect(props.on_copy_project).toHaveBeenCalledOnce();
   });
 
   it("翻译按钮调用任务启动入口", async () => {

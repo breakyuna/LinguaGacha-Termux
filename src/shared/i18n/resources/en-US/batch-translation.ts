@@ -10,6 +10,7 @@ export const en_us_batch_translation = {
     stopping: "Stopping",
     detail_tooltip: "Click to view details",
     running: "Translating",
+    interrupted: "Interrupted",
   },
   detail: {
     provider: "Provider",
@@ -32,6 +33,7 @@ export const en_us_batch_translation = {
     keys_retry_running: "No keys available. Retried {count} times. Retrying …",
     refresh_failed: "Failed to refresh the translation task …",
     start_failed: "Failed to start the translation task …",
+    interrupted: "The last translation task was interrupted. You can start it again.",
     stop_failed: "Failed to stop the translation task …",
     reset_all_failed: "Failed to reset all translation progress …",
     reset_failed_failed: "Failed to reset failed translation entries …",

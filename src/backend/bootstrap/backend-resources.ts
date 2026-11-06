@@ -17,6 +17,7 @@ export interface BackendResourceOptions {
   builtinRoot: string; // 当前版本只读内置资产根
   logTargets?: Partial<LogTargets>; // 入口按 GUI 或 CLI 选择日志出口
   systemProxyResolver: SystemProxyResolver; // Electron session 提供的系统代理事实
+  dataRoot?: string; // Web 入口显式注入数据根
 }
 
 /**
@@ -40,6 +41,7 @@ export class BackendResources {
     const paths = new AppPathService({
       appRoot: options.appRoot,
       builtinRoot: options.builtinRoot,
+      ...(options.dataRoot === undefined ? {} : { dataRoot: options.dataRoot }),
     });
     const metadata = new AppMetadataService(paths);
     const log_manager = new LogManager({

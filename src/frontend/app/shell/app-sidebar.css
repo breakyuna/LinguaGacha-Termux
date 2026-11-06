@@ -1,9 +1,19 @@
 .shell-sidebar {
   --sidebar-row-height: 36px;
   --sidebar-inset: 8px;
-  /* 图标列占满折叠后的按钮，两态共用同一中心线。 */
+  /* 图标列占满折叠后的按钮，两态共用同一中心线；抽屉形态经 Portal 渲染，同样读取这份结构变量。 */
   --sidebar-icon-column: calc(var(--sidebar-width-icon) - 2 * var(--sidebar-inset));
   overflow: hidden;
+}
+
+/* 抽屉复用并排侧栏的行结构，只覆盖 Sheet 自带的宽度、间距与配色，并补齐壳层变量。 */
+.shell-sidebar-drawer {
+  --sidebar-width-icon: var(--shell-sidebar-width-icon);
+  width: var(--shell-sidebar-width);
+  gap: 0;
+  background: var(--sidebar);
+  color: var(--sidebar-foreground);
+  border-color: var(--sidebar-border);
 }
 
 .shell-sidebar__scroll {

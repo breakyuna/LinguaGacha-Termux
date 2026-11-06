@@ -7,14 +7,22 @@ import type { TranslationGenerationState } from "./use-translation-generation-fl
 
 vi.mock("@frontend/app/locale/locale-context", () => ({
   useI18n: () => ({
-    t: (key: string, params?: Record<string, string>) =>
-      params?.COUNT === undefined ? key : `${key}:${params.COUNT}`,
+    t: (key: string, params?: Record<string, string>) => {
+      if (params?.COUNT !== undefined) return `${key}:${params.COUNT}`;
+      if (params?.NAME !== undefined) return `${key}:${params.NAME}`;
+      return key;
+    },
   }),
+}));
+
+vi.mock("@frontend/app/desktop/desktop-api", () => ({
+  api_file_url: (path: string) => `http://127.0.0.1:38191${path}`,
 }));
 
 describe("TranslationGenerationDialog", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
+  let close_handler: ReturnType<typeof vi.fn> | null = null;
 
   afterEach(() => {
     if (root !== null) act(() => root?.unmount());
@@ -75,6 +83,39 @@ describe("TranslationGenerationDialog", () => {
     expect(confirm_generation).toHaveBeenCalledOnce();
   });
 
+  it("生成完成后按输出文件渲染受控下载链接", () => {
+    render_dialog(
+      {
+        phase: "generated",
+        files: [
+          { name: "demo.txt", path: "E:/demo/out/demo.txt", size: 12 },
+          { name: "demo_双语.txt", path: "E:/demo/out/demo_bilingual.txt", size: 20 },
+        ],
+      },
+      {},
+    );
+
+    const links = Array.from(document.body.querySelectorAll("a"));
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "http://127.0.0.1:38191/api/translation/files/download?path=E%3A%2Fdemo%2Fout%2Fdemo.txt",
+      "http://127.0.0.1:38191/api/translation/files/download?path=E%3A%2Fdemo%2Fout%2Fdemo_bilingual.txt",
+    ]);
+    expect(links.every((link) => link.hasAttribute("download"))).toBe(true);
+    expect(document.body.textContent).toContain(
+      "app.translation_generation.download.file_action:demo.txt",
+    );
+    expect(document.body.textContent).toContain(
+      "app.translation_generation.download.file_action:demo_双语.txt",
+    );
+
+    act(() =>
+      document.body
+        .querySelector<HTMLButtonElement>('[data-slot="alert-dialog-primary-action"]')
+        ?.click(),
+    );
+    expect(close_handler).toHaveBeenCalledOnce();
+  });
+
   /** 通过公开流程状态驱动确认与警告分流。 */
   function render_dialog(
     state: TranslationGenerationState,
@@ -83,6 +124,8 @@ describe("TranslationGenerationDialog", () => {
       confirm_generation?: () => Promise<void>;
     } = {},
   ): void {
+    const on_close = vi.fn<() => void>();
+    close_handler = on_close;
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -94,7 +137,7 @@ describe("TranslationGenerationDialog", () => {
           retry_check={vi.fn()}
           confirm_generation={callbacks.confirm_generation ?? vi.fn(async () => {})}
           jump_to_agent={callbacks.jump_to_agent ?? vi.fn()}
-          close={vi.fn()}
+          close={on_close}
         />,
       );
     });

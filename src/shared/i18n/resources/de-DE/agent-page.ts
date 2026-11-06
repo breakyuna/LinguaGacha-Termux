@@ -130,6 +130,8 @@ export const de_de_agent_page = {
     no_message_text: "Kein Nachrichtentext",
     attachments: "{count} Anhänge",
     reorder: "Zum Sortieren ziehen",
+    move_up: "Nach oben verschieben",
+    move_down: "Nach unten verschieben",
     send_now: "Jetzt senden",
     sending: "Wird gesendet",
     delete: "Nachricht löschen",

@@ -59,6 +59,7 @@ import {
   APP_TABLE_DEFAULT_VIRTUAL_OVERSCAN,
   build_app_table_placeholder_fill,
   build_app_table_spacer_heights,
+  resolve_app_table_min_width,
   resolve_app_table_row_zebra,
 } from "@frontend/widgets/app-table/app-table-virtualization";
 
@@ -287,6 +288,7 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
     row_class_name,
   } = props;
   const table_scroll_host_ref = useRef<HTMLDivElement | null>(null);
+  const table_head_wrap_ref = useRef<HTMLDivElement | null>(null);
   const table_body_ref = useRef<HTMLTableSectionElement | null>(null);
   const selection_box_element_ref = useRef<HTMLDivElement | null>(null);
   const row_elements_ref = useRef(new Map<string, HTMLTableRowElement>());
@@ -314,6 +316,8 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
   const layout_commit_id_ref = useRef(0);
   // 表格虚拟计算的唯一行高来源，CSS 变量和虚拟定位共用它。
   const row_height = row_height_prop ?? APP_TABLE_DEFAULT_ROW_HEIGHT;
+  // 窄于该宽度时表格在自身容器内横向滚动，宽于它时保持 100% 宽度，桌面视觉不变。
+  const table_min_width = useMemo(() => resolve_app_table_min_width(columns), [columns]);
   const [viewport_element, set_viewport_element] = useState<HTMLElement | null>(null);
   const [viewport_height, set_viewport_height] = useState(row_height);
   const [drag_overlay_width, set_drag_overlay_width] = useState<number | null>(null);
@@ -536,6 +540,36 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
     );
     set_viewport_element(next_viewport_element);
   }, [row_count]);
+
+  // 表头与正文是两张列宽相同的表；正文横向滚动时按同一偏移平移表头，保持列对齐。
+  useEffect(() => {
+    const table_scroll_host_element = table_scroll_host_ref.current;
+    const table_head_wrap_element = table_head_wrap_ref.current;
+    if (table_scroll_host_element === null || table_head_wrap_element === null) {
+      return;
+    }
+
+    const body_container_element = table_scroll_host_element.querySelector<HTMLElement>(
+      '[data-slot="table-container"]',
+    );
+    const head_container_element = table_head_wrap_element.querySelector<HTMLElement>(
+      '[data-slot="table-container"]',
+    );
+    if (body_container_element === null || head_container_element === null) {
+      return;
+    }
+
+    // 表头容器不响应滚动手势，只跟随正文已经产生的横向偏移。
+    const sync_head_scroll_offset = (): void => {
+      head_container_element.scrollLeft = body_container_element.scrollLeft;
+    };
+
+    sync_head_scroll_offset();
+    body_container_element.addEventListener("scroll", sync_head_scroll_offset, { passive: true });
+    return () => {
+      body_container_element.removeEventListener("scroll", sync_head_scroll_offset);
+    };
+  }, [columns, row_count]);
 
   useEffect(() => {
     const table_scroll_host_element = table_scroll_host_ref.current;
@@ -1503,9 +1537,10 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
       return;
     }
 
-    const table_container_element = table_body_element.closest('[data-slot="table-container"]');
-    if (table_container_element instanceof HTMLElement) {
-      set_drag_overlay_width(table_container_element.getBoundingClientRect().width);
+    // 取表格自身宽度而不是裁剪容器宽度，窄视口横向滚动时浮层仍覆盖整行。
+    const table_element = table_body_element.closest("table");
+    if (table_element instanceof HTMLElement) {
+      set_drag_overlay_width(table_element.getBoundingClientRect().width);
       return;
     }
 
@@ -1592,7 +1627,7 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
   };
 
   const header = (
-    <div className="app-table__head-wrap">
+    <div ref={table_head_wrap_ref} className="app-table__head-wrap">
       <Table className={cn("app-table__table", table_class_name)}>
         {render_colgroup()}
         <TableHeader className="app-table__head">
@@ -1672,6 +1707,7 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
     );
   const root_style = {
     "--app-table-row-height": `${row_height.toString()}px`,
+    "--app-table-min-width": `${table_min_width.toString()}px`,
   } as CSSProperties;
 
   return (

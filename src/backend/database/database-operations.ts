@@ -128,6 +128,21 @@ export class ProjectDatabase {
       }
     });
   }
+  /**
+   * 一致性副本：VACUUM INTO 只读取当前连接并另写目标文件，
+   * 源工程的写入队列、事务与连接生命周期都不受影响。
+   */
+  public async copy_snapshot_to(project_path: string, destination_path: string): Promise<void> {
+    await this.use_connection(project_path, async (record) => {
+      try {
+        this.native_fs.make_dir(path.dirname(destination_path));
+        // 目标必须不存在，VACUUM INTO 拒绝覆盖既有文件，撞名由调用方重新解析。
+        record.db.prepare("VACUUM INTO ?").run(destination_path);
+      } catch (error) {
+        throw database_error(error, project_path, "copy_snapshot");
+      }
+    });
+  }
   /** 批次结束撤销句柄，阻止异步延续跨批次访问。 */
   public read<T>(project_path: string, callback: (reader: ProjectDatabaseAccess) => T): Promise<T> {
     return this.use_connection(project_path, async (record) => {

@@ -5,6 +5,7 @@ export type { ApiEnvelope, ApiErrorEnvelope, ApiSuccessEnvelope } from "../../sh
 
 export interface ApiGatewayStartResult {
   baseUrl: string;
+  port: number; // 实际监听端口，Web 入口据此刻印访问地址与 Host 白名单
 }
 
 export function ok(data: JsonSnapshot): ApiSuccessEnvelope {

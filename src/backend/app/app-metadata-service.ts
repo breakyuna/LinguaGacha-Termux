@@ -1,7 +1,7 @@
 import { AppPathService } from "./app-path-service";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 
-const REPO_URL = "https://github.com/neavo/LinguaGacha";
+const REPO_URL = "https://github.com/breakyuna/LinguaGacha-Termux";
 const USER_AGENT_NAME = "LinguaGacha";
 const DEFAULT_VERSION = "0.0.0";
 

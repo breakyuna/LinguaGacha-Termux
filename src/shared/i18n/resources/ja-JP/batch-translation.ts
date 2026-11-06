@@ -10,6 +10,7 @@ export const ja_jp_batch_translation = {
     stopping: "停止処理中",
     detail_tooltip: "クリックして詳細を表示",
     running: "翻訳中",
+    interrupted: "中断済み",
   },
   detail: {
     provider: "接続先",
@@ -32,6 +33,7 @@ export const ja_jp_batch_translation = {
     keys_retry_running: "利用可能なキーがありません。再試行 {count} 回、再試行中 …",
     refresh_failed: "翻訳タスクの状態を更新できませんでした …",
     start_failed: "翻訳タスクを開始できませんでした …",
+    interrupted: "前回の翻訳タスクは中断されました。再開できます。",
     stop_failed: "翻訳タスクを停止できませんでした …",
     reset_all_failed: "すべての翻訳をリセットできませんでした …",
     reset_failed_failed: "失敗した項目をリセットできませんでした …",

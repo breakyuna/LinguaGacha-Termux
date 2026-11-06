@@ -55,3 +55,17 @@
   );
   opacity: 1;
 }
+
+/* 触屏没有悬停态，且窄视口已进入抽屉导航的手机布局：36px 工具栏主操作用不可见热区补到
+   40px 量级点击目标；宽视口桌面不渲染任何变化。 */
+@media (hover: none), (max-width: 767px) {
+  .command-bar__toolbar [data-slot="button"] {
+    position: relative;
+  }
+
+  .command-bar__toolbar [data-slot="button"]:not(:disabled)::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+  }
+}

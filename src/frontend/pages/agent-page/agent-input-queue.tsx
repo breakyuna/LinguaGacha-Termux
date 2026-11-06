@@ -5,7 +5,16 @@ import {
   SORTABLE_PROVIDER_OPTIONS,
 } from "@frontend/widgets/interactions/sortable";
 import { useReorder } from "@frontend/widgets/interactions/use-reorder";
-import { GripVertical, LoaderCircle, Pencil, Send, Trash2 } from "lucide-react";
+import { move_ordered_ids } from "@frontend/widgets/interactions/reorder";
+import {
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  LoaderCircle,
+  Pencil,
+  Send,
+  Trash2,
+} from "lucide-react";
 import type { JSX, ReactNode } from "react";
 
 import { useI18n } from "@frontend/app/locale/locale-context";
@@ -37,6 +46,24 @@ export function AgentInputQueue(props: AgentInputQueueProps): JSX.Element | null
   });
   if (props.queue.items.length === 0) return null;
   const items_by_id = new Map(props.queue.items.map((item) => [item.id, item]));
+  // 与拖拽同一约束：发送中的行既不能作为移动源，也不能作为落点。
+  const sending_ids = new Set(
+    props.queue.items.filter((item) => item.status === "sending").map((item) => item.id),
+  );
+
+  /** 上移/下移按钮与拖拽共用同一提交入口，目标行缺失时保持原序。 */
+  function handle_move(id: string, offset: -1 | 1): void {
+    const current_index = reorder.ordered_ids.indexOf(id);
+    const target_id = reorder.ordered_ids[current_index + offset];
+    if (target_id === undefined) return;
+    reorder.submit(
+      move_ordered_ids({
+        ordered_ids: reorder.ordered_ids,
+        moving_ids: [id],
+        target: { id: target_id },
+      }),
+    );
+  }
 
   return (
     <div className="agent-input-queue">
@@ -44,11 +71,15 @@ export function AgentInputQueue(props: AgentInputQueueProps): JSX.Element | null
         <ol className="agent-input-queue__items">
           {reorder.ordered_ids.map((id, index) => {
             const item = items_by_id.get(id)!;
+            const previous_id = reorder.ordered_ids[index - 1];
+            const next_id = reorder.ordered_ids[index + 1];
             return (
               <AgentInputQueueItem
                 key={item.id}
                 item={item}
                 index={index}
+                can_move_up={previous_id !== undefined && !sending_ids.has(previous_id)}
+                can_move_down={next_id !== undefined && !sending_ids.has(next_id)}
                 disabled={props.disabled || editing || reorder.pending}
                 can_send_now={props.queue.canSendNow}
                 editing={props.active_edit_item_id === item.id}
@@ -56,6 +87,7 @@ export function AgentInputQueue(props: AgentInputQueueProps): JSX.Element | null
                 on_edit={props.on_edit}
                 on_delete={props.on_delete}
                 on_send_now={props.on_send_now}
+                on_move={(offset) => handle_move(id, offset)}
               />
             );
           })}
@@ -69,6 +101,8 @@ export function AgentInputQueue(props: AgentInputQueueProps): JSX.Element | null
 function AgentInputQueueItem(props: {
   item: AgentQueuedInput;
   index: number;
+  can_move_up: boolean;
+  can_move_down: boolean;
   disabled: boolean;
   can_send_now: boolean;
   editing: boolean;
@@ -76,6 +110,7 @@ function AgentInputQueueItem(props: {
   on_edit: (item: AgentQueuedInput) => void;
   on_delete: (id: string) => void;
   on_send_now: (id: string) => void;
+  on_move: (offset: -1 | 1) => void;
 }): JSX.Element {
   const { t } = useI18n();
   // sending 只替换主操作内容；所有可变操作共用同一禁用事实。
@@ -129,6 +164,23 @@ function AgentInputQueueItem(props: {
         </span>
       ) : null}
       <div className="agent-input-queue__actions">
+        {/* 触屏重排入口与拖拽手柄并存；桌面 display:none 不占布局（见 agent-page.css）。 */}
+        <div className="agent-input-queue__reorder">
+          <QueueIconAction
+            label={t("agent_page.queue.move_up")}
+            disabled={item_actions_disabled || !props.can_move_up}
+            on_click={() => props.on_move(-1)}
+          >
+            <ChevronUp aria-hidden="true" />
+          </QueueIconAction>
+          <QueueIconAction
+            label={t("agent_page.queue.move_down")}
+            disabled={item_actions_disabled || !props.can_move_down}
+            on_click={() => props.on_move(1)}
+          >
+            <ChevronDown aria-hidden="true" />
+          </QueueIconAction>
+        </div>
         <QueueIconAction
           label={t(sending ? "agent_page.queue.sending" : "agent_page.queue.send_now")}
           disabled={item_actions_disabled || !props.can_send_now}

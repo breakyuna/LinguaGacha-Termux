@@ -31,7 +31,7 @@ describe("AppMetadataService", () => {
 
     expect(service.read_version()).toBe("1.2.3");
     expect(service.build_linguagacha_user_agent()).toBe(
-      "LinguaGacha/v1.2.3 (https://github.com/neavo/LinguaGacha)",
+      "LinguaGacha/v1.2.3 (https://github.com/breakyuna/LinguaGacha-Termux)",
     );
   });
 
@@ -42,7 +42,7 @@ describe("AppMetadataService", () => {
     );
 
     expect(service.build_linguagacha_user_agent()).toBe(
-      "LinguaGacha/v0.0.0 (https://github.com/neavo/LinguaGacha)",
+      "LinguaGacha/v0.0.0 (https://github.com/breakyuna/LinguaGacha-Termux)",
     );
     expect(() => service.read_version()).toThrow();
   });

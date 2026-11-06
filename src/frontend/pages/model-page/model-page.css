@@ -79,6 +79,24 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  /* 芯片长度由型号名决定，容器查询让超长型号在窄工作区收缩为省略号。 */
+  container-type: inline-size;
+}
+
+/* 型号名过长时芯片收缩到容器宽度，不把页面撑出视口。 */
+@container (max-width: 420px) {
+  .model-page__item-chip {
+    max-width: 100%;
+  }
+
+  .model-page__name-trigger {
+    min-width: 0;
+  }
+
+  .model-page__name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .model-page__item-chip {
@@ -173,7 +191,7 @@
 
 .model-page__dialog-scroll {
   min-height: 0;
-  max-height: calc(100vh - 220px);
+  max-height: calc(100dvh - 220px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -241,6 +259,22 @@
   flex-direction: column;
   gap: 12px;
   padding: 12px;
+  /* 头部控件行的堆叠判断以卡片自身宽度为准，与所在弹窗宽度解耦。 */
+  container-type: inline-size;
+}
+
+/* 字段与头部控件在收窄容器里放开硬下限，随所在行或卡片收缩。 */
+@container (max-width: 520px) {
+  .model-page__field--md,
+  .model-page__field--lg {
+    min-width: 0;
+  }
+
+  .model-page__advanced-card-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
 }
 
 .model-page__advanced-card-head {

@@ -3,6 +3,7 @@ import {
   push_toast,
   run_modal_progress_toast,
 } from "@frontend/app/feedback/desktop-toast";
+import { is_web_host_document, read_host_bridge } from "@frontend/app/host/host-bridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -27,7 +28,8 @@ import type {
   ProjectWriteResultPayload,
 } from "@frontend/app/state/desktop-project-write";
 import { useI18n } from "@frontend/app/locale/locale-context";
-import { api_fetch } from "@frontend/app/desktop/desktop-api";
+import { api_fetch, api_file_url, DesktopApiError } from "@frontend/app/desktop/desktop-api";
+import { trigger_browser_download } from "@frontend/features/web-file-picker/web-file-download";
 import { format_source_file_parse_failure_error_toast } from "@frontend/app/feedback/source-file-parse-failure-feedback";
 import {
   close_dialog_state,
@@ -228,15 +230,17 @@ export type UseWorkbenchPageStateResult = {
   can_edit_files: boolean;
   can_delete_selected_files: boolean;
   can_close_project: boolean;
+  can_copy_project: boolean;
   dialog_state: WorkbenchDialogState;
   refresh_snapshot: () => Promise<WorkbenchSnapshot>;
   apply_table_selection: (payload: AppTableSelectionChange) => void;
   prepare_entry_action: (entry_id: string) => void;
   request_add_file: () => Promise<void>;
   request_add_file_from_path: (source_path: string) => Promise<void>;
-  request_add_files_from_paths: (source_paths: string[]) => Promise<void>;
+  request_add_files_from_paths: (source_paths: string[], material_ids?: string[]) => Promise<void>;
   notify_add_file_drop_issue: (issue: WorkbenchAddFileDropIssue) => void;
   request_close_project: () => void;
+  request_copy_project: () => Promise<void>;
   request_reset_file: (entry_id: string) => void;
   request_delete_selected_files: () => void;
   request_reorder_entries: (ordered_entry_ids: string[]) => Promise<void>;
@@ -511,6 +515,9 @@ export function useWorkbenchPageState(): UseWorkbenchPageStateResult {
     selected_delete_target_rel_paths.length < entries.length;
   const can_close_project =
     project_snapshot.loaded && !is_runtime_busy(runtime_snapshot) && !is_write_running;
+  // 副本读取数据库一致性快照，运行中或写入中不开始，避免与在途事务争用。
+  const can_copy_project =
+    project_snapshot.loaded && !is_runtime_busy(runtime_snapshot) && !is_write_running;
 
   const set_dialog_submitting = useCallback((next_submitting: boolean): void => {
     set_dialog_state((previous_state) => {
@@ -627,17 +634,22 @@ export function useWorkbenchPageState(): UseWorkbenchPageStateResult {
   const request_add_files_from_paths = import_files_flow.request_add_files_from_paths;
   const request_add_file_from_path = import_files_flow.request_add_file_from_path;
 
-  /** 文件选择与拖入共用导入流程。 */
+  /** 文件选择与拖入共用导入流程；上传暂存材料在导入成功后释放。 */
   async function request_add_file(): Promise<void> {
     if (readonly) {
       return;
     }
 
-    const result = await window.desktopApp.pickWorkbenchFilePath();
-    if (result.canceled || result.paths.length === 0) {
-      return;
+    try {
+      const result = await read_host_bridge().pickWorkbenchFilePath();
+      if (result.canceled || result.paths.length === 0) {
+        return;
+      }
+
+      await request_add_files_from_paths(result.paths, result.material_ids ?? []);
+    } catch (error) {
+      push_error_toast(t("app.web_access.capability_unavailable"), error);
     }
-    await request_add_files_from_paths(result.paths);
   }
 
   /** 将拖入文件的问题映射为可见提示。 */
@@ -656,6 +668,43 @@ export function useWorkbenchPageState(): UseWorkbenchPageStateResult {
       pending_path: null,
       submitting: false,
     });
+  }
+
+  /**
+   * 生成工程副本并交付：Web 传输经受控下载交给浏览器保存，
+   * 桌面没有浏览器下载语义，直接提示副本落点由用户自行取用。
+   */
+  async function request_copy_project(): Promise<void> {
+    if (!can_copy_project) {
+      return;
+    }
+
+    try {
+      const copy_payload = await run_modal_progress_toast({
+        message: t("workbench_page.feedback.copy_loading"),
+        task: async (): Promise<{ path?: unknown; name?: unknown; size?: unknown }> => {
+          return await api_fetch<{ path?: unknown; name?: unknown; size?: unknown }>(
+            "/api/session/project/copy",
+            {},
+          );
+        },
+      });
+      const copy_path = typeof copy_payload.path === "string" ? copy_payload.path.trim() : "";
+      if (copy_path === "") {
+        throw DesktopApiError.local("http_error", { path: "/api/session/project/copy" });
+      }
+
+      if (is_web_host_document()) {
+        trigger_browser_download(
+          api_file_url(`/api/web/files/download?path=${encodeURIComponent(copy_path)}`),
+        );
+        push_toast("success", t("workbench_page.feedback.copy_download_started"));
+      } else {
+        push_toast("success", t("workbench_page.feedback.copy_saved", { path: copy_path }));
+      }
+    } catch (error) {
+      push_error_toast(t("app.feedback.copy_failed"), error);
+    }
   }
 
   /** 冻结待重置文件，交由确认入口提交。 */
@@ -816,6 +865,7 @@ export function useWorkbenchPageState(): UseWorkbenchPageStateResult {
     can_edit_files,
     can_delete_selected_files,
     can_close_project,
+    can_copy_project,
     dialog_state,
     refresh_snapshot,
     apply_table_selection,
@@ -825,6 +875,7 @@ export function useWorkbenchPageState(): UseWorkbenchPageStateResult {
     request_add_files_from_paths,
     notify_add_file_drop_issue,
     request_close_project,
+    request_copy_project,
     request_reset_file,
     request_delete_selected_files,
     request_reorder_entries,

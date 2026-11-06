@@ -108,6 +108,12 @@ vi.mock("@frontend/app/locale/locale-context", () => {
 vi.mock("@frontend/app/desktop/desktop-api", () => {
   return {
     api_fetch: vi.fn(),
+    api_file_url: vi.fn((path: string) => `http://127.0.0.1:38191${path}`),
+    DesktopApiError: {
+      local: vi.fn((code: string, details: Record<string, unknown>) => {
+        return new Error(`local:${code}:${JSON.stringify(details)}`);
+      }),
+    },
     report_renderer_error: vi.fn(async () => undefined),
   };
 });
@@ -479,6 +485,66 @@ describe("useWorkbenchPageState", () => {
     });
   });
 
+  it("选择器能力缺失时给出可见提示且不进入导入流程", async () => {
+    workbench_picker_fixture.current.pickWorkbenchFilePath.mockRejectedValue(
+      new Error("capability missing"),
+    );
+    await render_hook();
+
+    await act(async () => {
+      await latest_state?.request_add_file();
+    });
+
+    expect(toast_fixture.current.push_toast).toHaveBeenCalledWith(
+      "app.web_access.capability_unavailable",
+      expect.any(Error),
+    );
+    expect(api_fetch).not.toHaveBeenCalledWith("/api/workbench/files/preview", expect.anything());
+  });
+
+  it("上传暂存材料随选择结果进入导入流程", async () => {
+    workbench_picker_fixture.current.pickWorkbenchFilePath.mockResolvedValue({
+      canceled: false,
+      paths: ["/data/web-imports/upload.txt"],
+      material_ids: ["mat-1"],
+    });
+    enqueue_api_response("/api/workbench/files/preview", {
+      files_revision: 1,
+      files: [
+        {
+          source_path: "/data/web-imports/upload.txt",
+          target_rel_path: "upload.txt",
+          conflict: false,
+        },
+      ],
+    });
+    enqueue_api_response("/api/workbench/files/import", create_project_write_result());
+    await render_hook();
+
+    await act(async () => {
+      await latest_state?.request_add_file();
+    });
+    await render_hook();
+    await act(async () => {
+      await latest_state?.secondary_dialog();
+    });
+
+    expect(api_fetch).toHaveBeenCalledWith("/api/workbench/files/preview", {
+      source_paths: ["/data/web-imports/upload.txt"],
+    });
+    expect(api_fetch).toHaveBeenCalledWith(
+      "/api/workbench/files/import",
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            source_path: "/data/web-imports/upload.txt",
+            target_rel_path: "upload.txt",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("拖拽失败提示会复用全局 drop warning 文案", async () => {
     await render_hook();
 
@@ -557,6 +623,87 @@ describe("useWorkbenchPageState", () => {
           items: 2,
         },
       }),
+    );
+  });
+
+  it("工程副本在 Web 传输下经受控下载交付", async () => {
+    (window as unknown as { __LG_WEB_BOOTSTRAP__?: unknown }).__LG_WEB_BOOTSTRAP__ = {
+      appVersion: "0.128.0",
+      shell: {},
+      backendApi: { baseUrl: "http://127.0.0.1:38191" },
+      capabilities: {},
+      session: { established: true },
+    };
+    enqueue_api_response("/api/session/project/copy", {
+      path: "E:/copies/demo.lg",
+      name: "demo.lg",
+      size: 2048,
+    });
+    const clicked_hrefs: string[] = [];
+    const click_spy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked_hrefs.push(this.href);
+    });
+
+    try {
+      await render_hook();
+      await act(async () => {
+        await latest_state?.request_copy_project();
+      });
+
+      expect(api_fetch).toHaveBeenCalledWith("/api/session/project/copy", {});
+      expect(clicked_hrefs).toEqual([
+        "http://127.0.0.1:38191/api/web/files/download?path=E%3A%2Fcopies%2Fdemo.lg",
+      ]);
+      expect(toast_fixture.current.push_toast).toHaveBeenCalledWith(
+        "success",
+        "workbench_page.feedback.copy_download_started",
+      );
+    } finally {
+      click_spy.mockRestore();
+      delete (window as unknown as { __LG_WEB_BOOTSTRAP__?: unknown }).__LG_WEB_BOOTSTRAP__;
+    }
+  });
+
+  it("工程副本在桌面传输下提示保存落点且不触发浏览器下载", async () => {
+    enqueue_api_response("/api/session/project/copy", {
+      path: "E:/copies/demo.lg",
+      name: "demo.lg",
+      size: 2048,
+    });
+    const click_spy = vi.spyOn(HTMLAnchorElement.prototype, "click");
+
+    try {
+      await render_hook();
+      await act(async () => {
+        await latest_state?.request_copy_project();
+      });
+
+      expect(api_fetch).toHaveBeenCalledWith("/api/session/project/copy", {});
+      expect(click_spy).not.toHaveBeenCalled();
+      expect(toast_fixture.current.push_toast).toHaveBeenCalledWith(
+        "success",
+        "workbench_page.feedback.copy_saved",
+      );
+    } finally {
+      click_spy.mockRestore();
+    }
+  });
+
+  it("工程副本生成失败时给出可见提示", async () => {
+    enqueue_api_response("/api/session/project/copy", () => {
+      throw new Error("copy failed");
+    });
+    await render_hook();
+
+    await act(async () => {
+      await latest_state?.request_copy_project();
+    });
+
+    expect(toast_fixture.current.push_toast).toHaveBeenCalledWith(
+      "app.feedback.copy_failed",
+      expect.objectContaining({ message: expect.stringContaining("copy failed") }),
     );
   });
 });

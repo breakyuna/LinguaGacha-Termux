@@ -37,6 +37,7 @@ import {
 } from "../project/project-data-reader";
 import { RuntimeOperationGate } from "../runtime-operation-gate";
 import { ProjectLifecycleService } from "../project/project-lifecycle-service";
+import { ProjectCopyService } from "../project/project-copy-service";
 import { ProjectSessionState } from "../project/project-session-state";
 import { ProjectSummaryService } from "../project/project-summary-service";
 import { ProjectWriteStore } from "../project/project-write-store";
@@ -96,6 +97,7 @@ export interface BackendProjectServices {
 
   summary: ProjectSummaryService;
   content: ProjectContentService;
+  copy: ProjectCopyService; // 工程副本在数据库一致性边界生成，交付走受控下载
 }
 
 export interface BackendProofreadingServices {
@@ -276,6 +278,7 @@ export class BackendServices {
         this.logManager,
         this.rpgmaker_mv_mz_prepare_worker.run,
       ),
+      copy: new ProjectCopyService(options.database, session_state, paths),
     };
     const settings_commands = new AppSettingsCommandService(
       this.app_setting_service,

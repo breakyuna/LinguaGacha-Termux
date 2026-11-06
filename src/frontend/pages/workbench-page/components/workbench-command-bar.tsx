@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 import { build_translation_task_summary_display } from "@frontend/features/batch-translation/batch-translation-display";
-import { FileInput, FilePlus2, SquarePower, Trash2, type LucideIcon } from "lucide-react";
+import { Download, FileInput, FilePlus2, SquarePower, Trash2, type LucideIcon } from "lucide-react";
 
 import { useActionShortcut } from "@frontend/widgets/interactions/use-action-shortcut";
 import type { BatchTranslationTask } from "@frontend/app/session/batch-translation/use-batch-translation-task";
@@ -26,14 +26,16 @@ type WorkbenchCommandBarProps = {
   can_delete_selected_files: boolean;
   can_generate_translation: boolean;
   can_close_project: boolean;
+  can_copy_project: boolean;
   on_add_file: () => void;
   on_delete_selected: () => void;
   on_generate_translation: () => void;
   on_close_project: () => void;
+  on_copy_project: () => void;
 };
 
 type CommandAction = {
-  id: "add-file" | "delete-file" | "generate-translation" | "close-project";
+  id: "add-file" | "delete-file" | "generate-translation" | "copy-project" | "close-project";
   icon: LucideIcon;
   label_key: LocaleKey;
   disabled: boolean;
@@ -73,6 +75,13 @@ export function WorkbenchCommandBar(props: WorkbenchCommandBarProps): JSX.Elemen
       label_key: "app.translation_generation.action",
       disabled: !props.can_generate_translation,
       on_click: props.on_generate_translation,
+    },
+    {
+      id: "copy-project",
+      icon: Download,
+      label_key: "workbench_page.action.copy_project",
+      disabled: !props.can_copy_project,
+      on_click: props.on_copy_project,
     },
     {
       id: "close-project",

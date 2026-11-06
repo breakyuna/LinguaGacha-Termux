@@ -1,10 +1,19 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorkbenchFileTable } from "./workbench-file-table";
 import type { WorkbenchFileEntry } from "@shared/workbench/workbench-query";
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
+
+// 触屏与窄视口的点击热区由 CSS 媒体查询决定，jsdom 不求值样式表，按样式源文断言契约。
+const workbench_page_css = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "workbench-page.css"),
+  "utf8",
+);
 
 // 观察进度单位和计数，让提示措辞可以独立修改。
 vi.mock("@frontend/app/locale/locale-context", () => ({
@@ -150,5 +159,21 @@ describe("WorkbenchFileTable", () => {
     expect(read_paths()).toEqual(["chapter1.txt", "chapter10.txt", "chapter2.txt"]);
     await act(async () => sort_buttons[1]?.click());
     expect(read_paths()).toEqual(["chapter10.txt", "chapter2.txt", "chapter1.txt"]);
+  });
+
+  it("行操作按钮桌面保持 20px，触屏与窄视口用不可见热区补到 40px 量级", () => {
+    // 桌面：视觉尺寸不回归，仍是 20px 图标按钮。
+    expect(workbench_page_css).toContain("width: 20px;");
+    expect(workbench_page_css).toContain("height: 20px;");
+
+    // 触屏与窄视口：-10px 四向热区把点击目标补到 40px 量级，不改变渲染尺寸。
+    const phone_block_start = workbench_page_css.indexOf("@media (hover: none)");
+    expect(phone_block_start).toBeGreaterThan(-1);
+    const phone_block = workbench_page_css.slice(
+      phone_block_start,
+      workbench_page_css.indexOf("\n}", phone_block_start),
+    );
+    expect(phone_block).toContain(".workbench-page__row-action");
+    expect(phone_block).toContain("inset: -10px;");
   });
 });

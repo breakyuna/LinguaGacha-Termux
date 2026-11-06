@@ -6,7 +6,7 @@ import {
   type AgentImageHostResult,
 } from "../../shared/agent-image";
 
-/** 测试服务的字节身份与缓存，真实解码由 Electron 集成测试覆盖。 */
+/** 测试服务的字节身份与缓存，真实解码由 Electron / Chromium 集成测试覆盖。 */
 function webp(marker: number, size = 16): Uint8Array {
   const bytes = Buffer.alloc(size, marker);
   bytes.write("RIFF", 0);
@@ -121,6 +121,15 @@ it("失败不进入缓存，输入格式在宿主调用前校验", async () => {
   });
   await service.prepare(webp(1));
   expect(host).toHaveBeenCalledTimes(2);
+});
+
+it("未注入图片宿主时按能力缺失回答，能力事实同步报告", async () => {
+  const service = new AgentImageService(undefined);
+  expect(service.available).toBe(false);
+  await expect(service.prepare(webp(1))).rejects.toMatchObject({
+    code: "runtime.capability_missing",
+    public_details: { reason: "image_host_unavailable" },
+  });
 });
 
 it("相同原图的并发请求共享转换，单个调用取消不影响其它消费者", async () => {

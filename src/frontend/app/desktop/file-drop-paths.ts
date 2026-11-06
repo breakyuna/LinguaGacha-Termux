@@ -1,3 +1,5 @@
+import { read_host_bridge } from "@frontend/app/host/host-bridge";
+
 type DroppedPathResult = {
   path: string | null;
   paths: string[];
@@ -46,7 +48,7 @@ export function resolve_dropped_paths(data_transfer: DataTransfer): DroppedPathR
     const normalized_file_paths: string[] = [];
     for (const dropped_file of dropped_files) {
       try {
-        const normalized_file_path = window.desktopApp.getPathForFile(dropped_file);
+        const normalized_file_path = read_host_bridge().getPathForFile(dropped_file);
         if (normalized_file_path !== "") {
           normalized_file_paths.push(normalized_file_path);
         }
@@ -55,11 +57,7 @@ export function resolve_dropped_paths(data_transfer: DataTransfer): DroppedPathR
       }
     }
     if (normalized_file_paths.length > 0) {
-      return {
-        path: normalized_file_paths[0] ?? null,
-        paths: normalized_file_paths,
-        has_multiple_paths: normalized_file_paths.length > 1,
-      };
+      return build_dropped_path_result(normalized_file_paths);
     }
   }
 
@@ -74,9 +72,14 @@ export function resolve_dropped_paths(data_transfer: DataTransfer): DroppedPathR
     return normalized_path === null ? [] : [normalized_path];
   });
 
+  return build_dropped_path_result(normalized_paths);
+}
+
+/** 拖拽结果统一按首个路径收敛，多条路径由调用方决定是否受理。 */
+function build_dropped_path_result(normalized_file_paths: string[]): DroppedPathResult {
   return {
-    path: normalized_paths[0] ?? null,
-    paths: normalized_paths,
-    has_multiple_paths: normalized_paths.length > 1,
+    path: normalized_file_paths[0] ?? null,
+    paths: normalized_file_paths,
+    has_multiple_paths: normalized_file_paths.length > 1,
   };
 }

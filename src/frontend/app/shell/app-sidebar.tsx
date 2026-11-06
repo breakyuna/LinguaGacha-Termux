@@ -17,8 +17,10 @@ import {
   SidebarSeparator,
 } from "@frontend/shadcn/sidebar";
 import { useSidebar } from "@frontend/shadcn/sidebar-context";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@frontend/shadcn/sheet";
 import { useI18n, type LocaleKey } from "@frontend/app/locale/locale-context";
 import { cn } from "@frontend/shadcn/classnames";
+import { useNarrowViewport } from "@frontend/app/shell/use-narrow-viewport";
 import {
   AppDropdownMenu,
   AppDropdownMenuContent,
@@ -47,14 +49,64 @@ type AppSidebarProps = {
   on_select_app_language: (language: AppLanguage) => void;
   on_profile_action: () => void;
 };
-/** 导航与语言选择由宿主状态驱动，侧栏只提交用户操作。 */
+
+type AppSidebarNavigationProps = AppSidebarProps & {
+  /** 触屏路径下选中导航即收起抽屉，桌面并排侧栏没有对应动作。 */
+  on_navigate?: () => void;
+};
+
+/**
+ * 窄视口把导航收进抽屉，宽视口保持并排侧栏。
+ * 抽屉开关仍由 SidebarProvider 的展开态驱动，不新建第二套导航状态。
+ */
 export function AppSidebar(props: AppSidebarProps): JSX.Element {
+  const { t } = useI18n();
+  const is_narrow_viewport = useNarrowViewport();
+  const { open, setOpen } = useSidebar();
+
+  if (is_narrow_viewport) {
+    return (
+      <Sheet
+        open={open}
+        onOpenChange={(is_open) => {
+          setOpen(is_open);
+        }}
+      >
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="shell-sidebar shell-sidebar-drawer"
+        >
+          {/* 抽屉的无障碍名称复用应用名，与标题栏可见文案一致。 */}
+          <SheetHeader className="sr-only">
+            <SheetTitle>{t("app.metadata.app_name")}</SheetTitle>
+          </SheetHeader>
+          <AppSidebarNavigation
+            {...props}
+            on_navigate={() => {
+              setOpen(false);
+            }}
+          />
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Sidebar className="shell-sidebar top-[var(--titlebar-height,0px)] h-[calc(100dvh-var(--titlebar-height,0px))]">
+      <AppSidebarNavigation {...props} />
+    </Sidebar>
+  );
+}
+
+/** 导航与语言选择由宿主状态驱动，侧栏只提交用户操作；两种形态共用同一份内容。 */
+function AppSidebarNavigation(props: AppSidebarNavigationProps): JSX.Element {
   const { t } = useI18n();
   const { state } = useSidebar();
   const is_collapsed = state === "collapsed";
 
   return (
-    <Sidebar className="shell-sidebar top-10 h-[calc(100svh-40px)]">
+    <>
       <SidebarContent className="shell-sidebar__scroll">
         {props.groups.map((group, group_index) => (
           <div key={group.id}>
@@ -93,6 +145,7 @@ export function AppSidebar(props: AppSidebarProps): JSX.Element {
                               props.on_toggle_group(item.id);
                             }
                             props.on_select_route(item.id);
+                            props.on_navigate?.();
                           }}
                           aria-label={t(item.title_key)}
                         >
@@ -127,7 +180,10 @@ export function AppSidebar(props: AppSidebarProps): JSX.Element {
                                       isActive={is_child_active}
                                       className="sidebar-row"
                                       disabled={is_child_disabled}
-                                      onClick={() => props.on_select_route(child.id)}
+                                      onClick={() => {
+                                        props.on_select_route(child.id);
+                                        props.on_navigate?.();
+                                      }}
                                       aria-label={t(child.title_key)}
                                       tabIndex={is_subitems_open ? 0 : -1}
                                     >
@@ -159,7 +215,10 @@ export function AppSidebar(props: AppSidebarProps): JSX.Element {
               className="sidebar-row"
               tooltip={t("app.navigation_action.logs")}
               aria-label={t("app.navigation_action.logs")}
-              onClick={props.on_open_logs}
+              onClick={() => {
+                props.on_open_logs();
+                props.on_navigate?.();
+              }}
             >
               <span className="sidebar-row__icon">
                 <ScrollText size={16} />
@@ -241,6 +300,6 @@ export function AppSidebar(props: AppSidebarProps): JSX.Element {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-    </Sidebar>
+    </>
   );
 }

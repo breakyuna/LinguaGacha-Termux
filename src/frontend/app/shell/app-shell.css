@@ -1,14 +1,22 @@
+:root {
+  /* 侧栏两种形态（并排与抽屉）共用展开宽度；抽屉经 Portal 挂到 body，继承不到应用壳内的变量，只能从根变量取。 */
+  --shell-sidebar-width: 256px;
+  --shell-sidebar-width-icon: 72px;
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;
-  width: 100vw;
-  height: 100vh;
+  /* dvh 跟随浏览器地址栏伸缩，避免移动端视口单位在软键盘与工具栏收放时跳动。 */
+  width: 100dvw;
+  height: 100dvh;
   overflow: hidden;
 }
 
 .shell-body {
   display: flex;
   flex: 1;
+  min-width: 0; /* 页面按桌面 min-content 设计，缺了它会把侧栏挤出视口。 */
   min-height: 0;
 }
 

@@ -539,6 +539,51 @@ describe("AppTable", () => {
     expect(container.querySelector('[data-active="true"]')?.textContent).toBe("Beta");
   });
 
+  it("窄容器下横向滚动局限在表格自身容器，表头跟随正文偏移", async () => {
+    const container = await mount(
+      create_default_props({
+        columns: [
+          {
+            kind: "drag",
+            id: "drag",
+            width: 64,
+          },
+          {
+            kind: "data",
+            id: "label",
+            title: "名称",
+            render_cell: ({ row }) => <span>{row.label}</span>,
+          },
+        ],
+      }),
+    );
+
+    // 最小宽度写在根节点上，表头和正文两张表共用同一列宽基准。
+    expect(
+      container
+        .querySelector<HTMLElement>(".app-table")
+        ?.style.getPropertyValue("--app-table-min-width"),
+    ).toBe("184px");
+
+    const head_container = container.querySelector<HTMLElement>(
+      ".app-table__head-wrap [data-slot='table-container']",
+    );
+    const body_container = container.querySelector<HTMLElement>(
+      ".app-table__scroll-host [data-slot='table-container']",
+    );
+    expect(head_container).not.toBeNull();
+    expect(body_container).not.toBeNull();
+
+    if (body_container !== null && body_container !== undefined) {
+      body_container.scrollLeft = 48;
+    }
+    act(() => {
+      body_container?.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(head_container?.scrollLeft).toBe(48);
+  });
+
   it("未传 row_model 时会用 rows 兼容入口渲染并派发选择", async () => {
     const on_selection_change = vi.fn<(payload: AppTableSelectionChange) => void>();
     const container = await mount(

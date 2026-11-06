@@ -25,8 +25,13 @@ export class AgentImageService {
   private lifetime = new AbortController(); // reset 取消旧转换，迟到结果不能重新填充缓存
   private readonly pending = new Map<string, Promise<AgentImage>>(); // 同内容和尺寸的消费者共用在途转换
 
-  /** 宿主执行编解码，服务独占图片策略与会话缓存。 */
-  public constructor(private readonly host: AgentImageHost) {}
+  /** 宿主执行编解码，服务独占图片策略与会话缓存。未注入宿主时按能力缺失回答。 */
+  public constructor(private readonly host: AgentImageHost | undefined) {}
+
+  /** 能力事实供工作区与模型可见说明按真实注入结果投影。 */
+  public get available(): boolean {
+    return this.host !== undefined;
+  }
 
   /** 工作区选项由父进程校验。这里捕获单次策略，使宿主处理和缓存使用同一尺寸。 */
   public async prepare(
@@ -78,14 +83,14 @@ export class AgentImageService {
     policy: AgentImagePolicy,
     effective_signal: AbortSignal,
   ): Promise<AgentImage> {
+    const host = this.host;
+    // 宿主缺失是运行期能力事实：与宿主内部拒绝使用同一错误分类，便于模型与界面按能力处理。
+    if (host === undefined) throw image_host_unavailable_error();
     const mimeType = read_image_type(bytes);
     if (mimeType === null) throw image_error("unsupported_image");
     let result: AgentImageHostResult;
     try {
-      result = await this.host(
-        { kind: "prepare_image", bytes, mimeType, policy },
-        effective_signal,
-      );
+      result = await host({ kind: "prepare_image", bytes, mimeType, policy }, effective_signal);
     } catch (cause) {
       effective_signal.throwIfAborted();
       throw image_error("image_processing_failed", cause);
@@ -162,4 +167,12 @@ export function read_image_type(bytes: Uint8Array): string | null {
 /** 公开原因只携带分类，原始编解码错误留在诊断原因链。 */
 function image_error(reason: string, cause?: unknown): AppError {
   return new AppError("request.validation_failed", { cause, public_details: { reason } });
+}
+
+/** 未注入宿主时按能力缺失回答，与 Chromium 宿主内部拒绝共用错误分类。 */
+function image_host_unavailable_error(): AppError {
+  return new AppError("runtime.capability_missing", {
+    public_details: { reason: "image_host_unavailable" },
+    diagnostic_context: { reason: "image_host_not_configured" },
+  });
 }

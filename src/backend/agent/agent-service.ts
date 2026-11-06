@@ -1051,6 +1051,8 @@ export class AgentService {
           });
         },
         refresh_skills: () => this.skills.refresh(),
+        // 模型可见的宿主能力按工作区真实注入结果投影，与运行时可观察行为一致。
+        capabilities: this.workspace.host_capabilities,
       }),
       create_agent_workspace_apply_tool({
         workspace: this.workspace,

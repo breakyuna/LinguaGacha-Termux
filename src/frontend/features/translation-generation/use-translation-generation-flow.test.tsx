@@ -210,6 +210,115 @@ describe("useTranslationGenerationFlow", () => {
     expect(latest_flow?.state.phase).toBe("ready");
   });
 
+  it("生成成功且存在输出文件时进入下载清单态，无文件时直接关闭", async () => {
+    mocks.api_fetch
+      .mockResolvedValueOnce({
+        projectPath: "E:/demo/sample.lg",
+        warningSummary: { total_count: 0, entries: [] },
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        output_path: "E:/demo/out",
+        pdf_files: [],
+        files: [
+          { name: "demo.txt", path: "E:/demo/out/demo.txt", size: 12 },
+          { name: "demo_双语.txt", path: "E:/demo/out/demo_bilingual.txt", size: 20 },
+        ],
+      });
+    await render_probe();
+    act(() => latest_flow?.request_generation());
+    await flush_microtasks();
+    await act(async () => {
+      await latest_flow?.confirm_generation();
+    });
+    expect(latest_flow?.state).toMatchObject({
+      phase: "generated",
+      files: [
+        { name: "demo.txt", path: "E:/demo/out/demo.txt", size: 12 },
+        { name: "demo_双语.txt", path: "E:/demo/out/demo_bilingual.txt", size: 20 },
+      ],
+    });
+    expect(latest_flow?.can_request_generation).toBe(false);
+
+    act(() => latest_flow?.close());
+    expect(latest_flow?.state.phase).toBe("closed");
+  });
+
+  it("生成成功但没有输出文件时保持关闭", async () => {
+    mocks.api_fetch
+      .mockResolvedValueOnce({
+        projectPath: "E:/demo/sample.lg",
+        warningSummary: { total_count: 0, entries: [] },
+      })
+      .mockResolvedValueOnce({ accepted: true, output_path: "E:/demo/out", pdf_files: [] });
+    await render_probe();
+    act(() => latest_flow?.request_generation());
+    await flush_microtasks();
+    await act(async () => {
+      await latest_flow?.confirm_generation();
+    });
+    expect(latest_flow?.state.phase).toBe("closed");
+  });
+
+  it("下载清单合并本次生成结果与工程已有各语言输出目录", async () => {
+    mocks.api_fetch
+      .mockResolvedValueOnce({
+        projectPath: "E:/demo/sample.lg",
+        warningSummary: { total_count: 0, entries: [] },
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        output_path: "E:/demo/demo_Translated",
+        pdf_files: [],
+        files: [{ name: "demo.txt", path: "E:/demo/demo_Translated/demo.txt", size: 12 }],
+      })
+      .mockResolvedValueOnce({
+        files: [
+          { name: "demo.txt", path: "E:/demo/demo_Translated/demo.txt", size: 12 },
+          { name: "demo.txt", path: "E:/demo/demo_译文/demo.txt", size: 20 },
+        ],
+      });
+    await render_probe();
+    act(() => latest_flow?.request_generation());
+    await flush_microtasks();
+    await act(async () => {
+      await latest_flow?.confirm_generation();
+    });
+    expect(latest_flow?.state).toMatchObject({
+      phase: "generated",
+      files: [
+        { name: "demo.txt", path: "E:/demo/demo_Translated/demo.txt", size: 12 },
+        { name: "demo.txt", path: "E:/demo/demo_译文/demo.txt", size: 20 },
+      ],
+    });
+    expect(mocks.api_fetch).toHaveBeenCalledWith("/api/translation/files/outputs", {});
+  });
+
+  it("输出目录列举失败时下载清单保留本次生成结果", async () => {
+    mocks.api_fetch
+      .mockResolvedValueOnce({
+        projectPath: "E:/demo/sample.lg",
+        warningSummary: { total_count: 0, entries: [] },
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        output_path: "E:/demo/out",
+        pdf_files: [],
+        files: [{ name: "demo.txt", path: "E:/demo/out/demo.txt", size: 12 }],
+      })
+      .mockRejectedValueOnce(new Error("outputs unavailable"));
+    await render_probe();
+    act(() => latest_flow?.request_generation());
+    await flush_microtasks();
+    await act(async () => {
+      await latest_flow?.confirm_generation();
+    });
+    expect(latest_flow?.state).toMatchObject({
+      phase: "generated",
+      files: [{ name: "demo.txt", path: "E:/demo/out/demo.txt", size: 12 }],
+    });
+  });
+
   it("警告查询失败后允许重新检查", async () => {
     mocks.api_fetch.mockRejectedValueOnce(new Error("query failed")).mockResolvedValueOnce({
       projectPath: "E:/demo/sample.lg",

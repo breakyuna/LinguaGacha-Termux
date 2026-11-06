@@ -42,6 +42,11 @@ import {
   has_unsettled_task_waveform_tail,
   TASK_WAVEFORM_SAMPLE_INTERVAL_MS,
 } from "@frontend/app/session/batch-translation/batch-translation-waveform-state";
+import {
+  is_uncertain_batch_translation_start_error,
+  probe_batch_translation_acceptance,
+  type BatchTranslationStartAck,
+} from "@frontend/app/session/batch-translation/batch-translation-start-command";
 
 // 翻译任务写入的诊断名由 renderer 会话拥有，desktop 层只负责提交与互斥。
 const WORKBENCH_TRANSLATION_WRITE: ProjectWriteOperation = "workbench.translation_write";
@@ -92,6 +97,10 @@ export function useBatchTranslationTask(
   const previous_project_loaded_ref = useRef(false);
   const previous_project_path_ref = useRef("");
   const previous_translation_status_ref = useRef(create_empty_batch_translation_snapshot().status);
+  // 最近一次待确认的启动命令身份：同一次用户意图的重复点击复用同一身份，由后端去重
+  const pending_start_command_id_ref = useRef<string | null>(null);
+  // 中断提示按快照 revision 去重，重复刷新与 SSE 重放不再次打扰
+  const interrupted_feedback_revision_ref = useRef<number | null>(null);
   const translation_waveform_state_ref = useRef(create_empty_task_waveform_state());
   const translation_task_display_snapshot = useMemo(() => {
     return resolve_translation_task_display_snapshot({
@@ -159,6 +168,9 @@ export function useBatchTranslationTask(
 
   const clear_translation_task_state = useCallback((): void => {
     set_last_translation_task_snapshot(null);
+    // 工程边界切换后旧命令身份与中断提示都不再归属当前工程
+    pending_start_command_id_ref.current = null;
+    interrupted_feedback_revision_ref.current = null;
 
     clear_translation_waveform_sampling();
     set_translation_waveform_history([]);
@@ -221,17 +233,11 @@ export function useBatchTranslationTask(
 
     const should_continue =
       resolve_batch_translation_start_mode(task_snapshot.progress) === "continue";
+    // 为什么：回包丢失后用户再次点击必须复用同一命令身份，后端按身份去重，避免二次受理撞上运行互斥
+    const command_id = pending_start_command_id_ref.current ?? crypto.randomUUID();
+    pending_start_command_id_ref.current = command_id;
 
-    try {
-      const task_payload = await api_fetch<BatchTranslationPayload>(
-        "/api/batch-translation/start",
-        {
-          mode: should_continue ? "continue" : "new",
-          operation: "translate",
-          scope: { kind: "all" },
-        },
-      );
-      const next_snapshot = normalize_batch_translation_snapshot(task_payload);
+    const apply_accepted_task_snapshot = (next_snapshot: BatchTranslationSnapshot): void => {
       sync_runtime_task_snapshot(next_snapshot);
 
       if (!should_continue) {
@@ -239,7 +245,39 @@ export function useBatchTranslationTask(
         clear_translation_waveform_sampling();
         set_translation_waveform_history([]);
       }
+    };
+
+    try {
+      const start_ack = await api_fetch<BatchTranslationStartAck>("/api/batch-translation/start", {
+        mode: should_continue ? "continue" : "new",
+        operation: "translate",
+        scope: { kind: "all" },
+        command_id,
+      });
+      sync_runtime_task_snapshot(normalize_batch_translation_snapshot(start_ack));
+      // 重复受理只回放既有运行，波形继续归属该运行，不按新一轮重置
+      if (start_ack.duplicate !== true && !should_continue) {
+        set_last_translation_task_snapshot(null);
+        clear_translation_waveform_sampling();
+        set_translation_waveform_history([]);
+      }
+      pending_start_command_id_ref.current = null;
     } catch (error) {
+      if (is_uncertain_batch_translation_start_error(error)) {
+        // 命令可能已被受理而回包丢失，先重查快照再决定是否报错
+        const acceptance = await probe_batch_translation_acceptance();
+        if (acceptance.outcome === "accepted") {
+          apply_accepted_task_snapshot(acceptance.snapshot);
+          pending_start_command_id_ref.current = null;
+          return;
+        }
+        // 确认未被受理时身份寿命结束；查询也失败时保留身份，供下一次提交继续去重
+        if (acceptance.outcome === "rejected") {
+          pending_start_command_id_ref.current = null;
+        }
+      } else {
+        pending_start_command_id_ref.current = null;
+      }
       push_error_toast(t("batch_translation.feedback.start_failed"), error);
     }
   }, [
@@ -395,6 +433,15 @@ export function useBatchTranslationTask(
       }
     }
 
+    // 中断提示来自崩溃恢复发布，与运行终态不同源：按 revision 去重，重复刷新不再次打扰
+    if (
+      next_status === "interrupted" &&
+      interrupted_feedback_revision_ref.current !== translation_task_snapshot.revision
+    ) {
+      interrupted_feedback_revision_ref.current = translation_task_snapshot.revision;
+      push_toast("warning", t("batch_translation.feedback.interrupted"), { persistent: false });
+    }
+
     if (
       !translation_dialog_open &&
       should_open_translation_generation_followup(previous_status, translation_task_snapshot)
@@ -408,6 +455,19 @@ export function useBatchTranslationTask(
     translation_task_snapshot,
     onRequestGeneration,
   ]);
+
+  // 待确认命令在观察到终态快照后寿命结束：运行已走完，下一次提交必须换用新身份；
+  // 活跃态保留身份，回包丢失期间的重试继续由后端去重。
+  useEffect(() => {
+    if (pending_start_command_id_ref.current === null) {
+      return;
+    }
+
+    const next_status = translation_task_snapshot.status;
+    if (next_status !== "idle" && !is_active_batch_translation_status(next_status)) {
+      pending_start_command_id_ref.current = null;
+    }
+  }, [translation_task_snapshot]);
 
   useEffect(() => {
     if (!should_animate_translation_waveform) {

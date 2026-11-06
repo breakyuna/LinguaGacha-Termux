@@ -369,6 +369,7 @@ it("删除变更目录后继续执行技能、提交和重置", async () => {
         prepare: async () => {
           throw new Error("Unexpected image");
         },
+        available: true,
       },
       paths: resources.paths,
       settings: resources.settings,
